@@ -29,24 +29,33 @@ Este projeto faz parte do ecossistema Chili Linux e é mantido pela comunidade V
 ### Via Repositório (Recomendado)
 
 Se você já utiliza o repositório voidlinuxbr ou está no Chili Linux, instale diretamente via xbps:
-
+```bash
 sudo xbps-install -S voidbr-vinstall
+```
 
 ### Via Código Fonte (Compilação)
 
 Certifique-se de ter o Go instalado:
 
+```bash
 sudo xbps-install -S go
+```
 
 1. Clone o repositório:
+```bash
 git clone [https://github.com/voidlinuxbr/voidbr-vinstall.git](https://github.com/voidlinuxbr/voidbr-vinstall.git)
 cd voidbr-vinstall
+```
 
 2. Compile o binário:
+```bash
 go build -o vinstall vinstall-v1.2.4.go
+```
 
 3. Mova para seu PATH:
+```bash
 sudo mv vinstall /usr/local/bin/
+```
 
 ---
 
