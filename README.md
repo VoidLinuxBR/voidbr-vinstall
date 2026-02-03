@@ -7,6 +7,7 @@ Wrapper para o Void xbps-query e xbps-install
 [![Version](https://img.shields.io/badge/version-1.2.4--20260203-cyan.svg)](https://github.com/voidlinuxbr/voidbr-vinstall)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Void Linux](https://img.shields.io/badge/platform-Void_Linux-blueviolet.svg)](https://voidlinux.org)
+[![Language](https://img.shields.io/badge/Made%20with-Go-00ADD8.svg?style=flat&logo=go)](https://go.dev/)
 
 **vinstall** é um wrapper inteligente e elegante para o gerenciador de pacotes xbps do Void Linux. Desenvolvido para tornar a experiência no terminal mais fluida, ele combina a robustez do xbps-install com uma interface interativa que ajuda você a encontrar o pacote certo quando ocorre um erro de digitação ou o nome é incerto.
 
