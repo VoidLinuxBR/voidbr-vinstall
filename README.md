@@ -102,6 +102,7 @@ Contribuições são muito bem-vindas! Sinta-se à vontade para abrir Issues ou 
 * Criado por: Vilmar Catafesta <vcatafesta@gmail.com>
 * Comunidade: Void Linux Brasil ([https://github.com/voidlinuxbr](https://github.com/voidlinuxbr))
 * Distribuição: Chili Linux ([https://chililinux.com](https://chililinux.com))
+* Distribuição: VoidBR ([https://github.com/voidlinuxbr](https://github.com/voidlinuxbr))
 
 ---
 
