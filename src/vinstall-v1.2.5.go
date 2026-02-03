@@ -6,7 +6,7 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   ter 03 fev 2026 17:45:20 -04
+    Updated:   ter 03 fev 2026 18:25:30 -04
     Version:   1.2.5-20260203
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
@@ -76,27 +76,35 @@ func cleanXbpsCache() {
 		return
 	}
 
-	var count int
+	var pkgCount int
 	var totalSize int64
 
 	fmt.Printf("%s %s\n", cyan("[vinstall]"), white("Iniciando limpeza total do cache em /var/cache/xbps..."))
 
 	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".xbps") {
+		if file.IsDir() {
+			continue
+		}
+
+		name := file.Name()
+		isPkg := strings.HasSuffix(name, ".xbps")
+		isSig := strings.HasSuffix(name, ".sig2")
+
+		if isPkg || isSig {
 			info, err := file.Info()
 			if err == nil {
 				totalSize += info.Size()
-				errRemove := os.Remove(filepath.Join(cachePath, file.Name()))
-				if errRemove == nil {
-					count++
+				errRemove := os.Remove(filepath.Join(cachePath, name))
+				if errRemove == nil && isPkg {
+					pkgCount++
 				}
 			}
 		}
 	}
 
 	fmt.Printf("\n%s %s\n", green("[✔]"), white("Limpeza concluída com sucesso!"))
-	fmt.Printf("%s %s %s\n", yellow("[!]"), white("Total de pacotes (.xbps) removidos:"), cyan(strconv.Itoa(count)))
-	fmt.Printf("%s %s %s\n", yellow("[!]"), white("Espaço total liberado:"), green(formatBytes(totalSize)))
+	fmt.Printf("%s %s %s\n", yellow("[!]"), white("Total de pacotes (.xbps) removidos:"), cyan(strconv.Itoa(pkgCount)))
+	fmt.Printf("%s %s %s\n", yellow("[!]"), white("Espaço total liberado (incluindo assinaturas):"), green(formatBytes(totalSize)))
 }
 
 func main() {
@@ -186,7 +194,7 @@ func printUsage() {
 	fmt.Printf("  %s %s\n", green("vinstall"), white("telegram"))
 	fmt.Printf("  %s %s\n", green("vinstall"), white("-Syu"))
 	fmt.Printf("  %s %s\n", green("vinstall"), white("-f yasm"))
-	fmt.Printf("  %s %s %s\n", green("vinstall"), white("-Scc"), cyan("(Limpa cache do Void)"))
+	fmt.Printf("  %s %s %s\n", green("vinstall"), white("-Scc"), cyan("(Limpa cache de pacotes e assinaturas)"))
 }
 
 func runXbps(flags []string, pkg string) bool {
