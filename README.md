@@ -43,7 +43,7 @@ sudo xbps-install -S go
 
 1. Clone o repositório:
 ```bash
-git clone [https://github.com/voidlinuxbr/voidbr-vinstall.git](https://github.com/voidlinuxbr/voidbr-vinstall.git)
+git clone https://github.com/voidlinuxbr/voidbr-vinstall.git
 cd voidbr-vinstall
 ```
 
@@ -64,16 +64,24 @@ sudo mv vinstall /usr/local/bin/
 O vinstall aceita as mesmas flags que o xbps-install.
 
 Uso básico:
+```bash
 vinstall telegram
+```
 
 Atualizar o sistema:
+```bash
 vinstall -Syu
+```
 
 Forçar reinstalação:
+```bash
 vinstall -f yasm
+```
 
 Ajuda do vinstall:
+```bash
 vinstall -h
+```
 
 ---
 
@@ -94,6 +102,12 @@ Contribuições são muito bem-vindas! Sinta-se à vontade para abrir Issues ou 
 * Criado por: Vilmar Catafesta <vcatafesta@gmail.com>
 * Comunidade: Void Linux Brasil ([https://github.com/voidlinuxbr](https://github.com/voidlinuxbr))
 * Distribuição: Chili Linux ([https://chililinux.com](https://chililinux.com))
+
+---
+
+## ⚖️ Disclaimer (Aviso Legal)
+
+ESTE SOFTWARE É FORNECIDO "COMO ESTÁ", SEM ABSOLUTAMENTE NENHUMA GARANTIA DE QUALQUER TIPO, EXPRESSA OU IMPLÍCITA, INCLUINDO, MAS NÃO SE LIMITANDO A, GARANTIAS DE COMERCIALIZAÇÃO OU ADEQUAÇÃO A UM PROPÓSITO ESPECÍFICO. O USO DESTE WRAPPER É DE TOTAL RESPONSABILIDADE DO USUÁRIO. EM NENHUM MOMENTO O AUTOR OU OS CONTRIBUIDORES SERÃO RESPONSÁVEIS POR QUALQUER DANO, PERDA DE DADOS OU FALHAS NO SISTEMA DECORRENTES DO USO DESTE PROGRAMA.
 
 ---
 
