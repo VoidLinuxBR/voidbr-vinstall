@@ -1,3 +1,3 @@
-# voidbr-pkgfile
+# voidbr-vinstall
 
-Template for VoidBR pkgmake/pkgfile packages
+Wrapper para o Void xbps-query e xbps-install

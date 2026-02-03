@@ -33,8 +33,8 @@
 ##############################################################################
 # Maintainer: Vilmar Catafesta <vcatafesta@gmail.com>
 
-pkgname=voidbr-pkgname
-pkgdesc="Package template for VoidLinuxBR"
+pkgname=voidbr-vinstall
+pkgdesc="Wrapper para o Void xbps-query e xbps-install"
 pkgver=$(date +%Y%m%d)
 pkgrel=$(date +%H%M)
 arch=('any')
