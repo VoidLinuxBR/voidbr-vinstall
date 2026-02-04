@@ -6,7 +6,7 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   qua 04 fev 2026 22:30:00 -04
+    Updated:   qua 04 fev 2026 23:15:00 -04
     Version:   1.3.5-20260204
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
@@ -21,7 +21,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/fatih/color"
 )
@@ -38,6 +40,13 @@ var (
 	red    = color.New(color.FgRed).SprintFunc()
 	yellow = color.New(color.Bold, color.FgYellow).SprintFunc()
 )
+
+type winsize struct {
+	Row    uint16
+	Col    uint16
+	Xpixel uint16
+	Ypixel uint16
+}
 
 type Package struct {
 	Status      string
@@ -59,12 +68,16 @@ func formatBytes(b int64) string {
 }
 
 func getTerminalWidth() int {
-	cmd := exec.Command("tput", "cols")
-	out, err := cmd.Output()
-	if err != nil { return 80 }
-	w, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-	if w <= 0 { return 80 }
-	return w
+	ws := &winsize{}
+	retCode, _, _ := syscall.Syscall(syscall.SYS_IOCTL,
+		uintptr(syscall.Stdin),
+		uintptr(syscall.TIOCGWINSZ),
+		uintptr(unsafe.Pointer(ws)))
+
+	if int(retCode) == 0 {
+		return int(ws.Col)
+	}
+	return 80
 }
 
 func cleanVersion(fullName string) string {
@@ -262,7 +275,7 @@ func fetchSuggestions(query string) []Package {
 func displaySearch(pkgs []Package, title string) {
 	if len(pkgs) == 0 { return }
 	width := getTerminalWidth()
-	lineStr := white(strings.Repeat("─", width)) // Garante o tamanho total do terminal
+	lineSeparator := white(strings.Repeat("─", width))
 
 	maxNameLen := 0
 	for _, p := range pkgs {
@@ -270,14 +283,14 @@ func displaySearch(pkgs []Package, title string) {
 	}
 	if maxNameLen > 50 { maxNameLen = 50 }
 
-	fmt.Printf("\n%s\n%s\n", cyan(title), lineStr)
+	fmt.Printf("\n%s\n%s\n", cyan(title), lineSeparator)
 	for i, p := range pkgs {
 		idx := yellow(fmt.Sprintf("[%2d]", i+1))
 		statusColor := red(p.Status)
 		if p.Status == "[*]" { statusColor = green(p.Status) }
-		fmt.Printf("%s %s %s  %s\n", idx, statusColor, white(fmt.Sprintf(" %-*s", maxNameLen, p.FullName)), green(p.Description))
+		fmt.Printf("%s %s %s  %s\n", idx, statusColor, white(fmt.Sprintf("%-*s", maxNameLen, p.FullName)), green(p.Description))
 	}
-	fmt.Println(lineStr)
+	fmt.Println(lineSeparator)
 }
 
 func displayMenu(pkgs []Package, flags []string) {
