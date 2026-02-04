@@ -6,8 +6,8 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   ter 03 fev 2026 22:10:15 -04
-    Version:   2.1.6-20260203
+    Updated:   qua 04 fev 2026 00:45:00 -04
+    Version:   1.2.8-20260204
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
 
@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	Version   = "2.1.6-20260203"
+	Version   = "1.2.8-20260204"
 	Copyright = "Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>"
 )
 
@@ -107,6 +107,63 @@ func cleanXbpsCache() {
 	fmt.Printf("%s %s %s\n", yellow("[!]"), white("Espaço total liberado (incluindo assinaturas):"), green(formatBytes(totalSize)))
 }
 
+func showHistory() {
+	logPath := "/var/log/socklog/xbps/current"
+	
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		fmt.Printf("%s %s\n", yellow("[!]"), white("Log não encontrado em /var/log/socklog/xbps/current. O socklog está ativo?"))
+		return
+	}
+
+	file, err := os.Open(logPath)
+	if err != nil {
+		if os.IsPermission(err) && os.Geteuid() != 0 {
+			cmd := exec.Command("sudo", os.Args[0], "--history")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+			cmd.Run()
+			return
+		}
+		fmt.Printf("%s %s\n", red("[X]"), white("Erro ao acessar o histórico: ")+err.Error())
+		return
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	fmt.Printf("\n%s %s\n", cyan("[vinstall]"), white("Últimas transações capturadas:"))
+	width := getTerminalWidth()
+	fmt.Println(white(strings.Repeat("─", width)))
+
+	start := 0
+	if len(lines) > 20 {
+		start = len(lines) - 20
+	}
+
+	for i := start; i < len(lines); i++ {
+		line := lines[i]
+		if strings.HasPrefix(line, "@") && len(line) > 25 {
+			line = line[25:]
+		}
+
+		if strings.Contains(line, "installed") || strings.Contains(line, "unpacking") {
+			fmt.Println(green(line))
+		} else if strings.Contains(line, "removed") {
+			fmt.Println(red(line))
+		} else if strings.Contains(line, "updating") || strings.Contains(line, "updated") {
+			fmt.Println(yellow(line))
+		} else {
+			fmt.Println(white(line))
+		}
+	}
+	fmt.Println(white(strings.Repeat("─", width)))
+}
+
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -118,6 +175,7 @@ func main() {
 	var targets []string
 	isScc := false
 	isRemove := false
+	isHistory := false
 
 	for _, arg := range args {
 		if arg == "-h" || arg == "--help" {
@@ -125,22 +183,31 @@ func main() {
 			return
 		}
 		if arg == "-v" || arg == "--version" {
-			fmt.Printf("vinstall v%s\n", Version)
+			fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
 			return
+		}
+		if arg == "--history" {
+			isHistory = true
+			continue
 		}
 		if arg == "-Scc" {
 			isScc = true
 			continue
 		}
-		if arg == "-X" {
+		if arg == "-X" || arg == "-x" {
 			isRemove = true
-			continue
+			continue 
 		}
 		if strings.HasPrefix(arg, "-") {
 			flags = append(flags, arg)
 		} else {
 			targets = append(targets, arg)
 		}
+	}
+
+	if isHistory {
+		showHistory()
+		return
 	}
 
 	if isScc {
@@ -153,7 +220,7 @@ func main() {
 		target = targets[0]
 	}
 
-	fmt.Printf("%s v%s\n", white("vinstall"), Version)
+	fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
 
 	if isRemove {
 		if target == "" {
@@ -203,14 +270,16 @@ func getTerminalWidth() int {
 }
 
 func printUsage() {
-	fmt.Printf("%s v%s\n", white("vinstall"), Version)
+	fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
 	fmt.Printf("%s\n\n", cyan(Copyright))
-	fmt.Printf("%s vinstall [flags] <pacote>\n\n", yellow("Uso:"))
+	fmt.Printf("%s vinstall [flags] <pacote>\n", yellow("Uso:"))
+	fmt.Printf("%s\n\n", white("O vinstall aceita todas as flags nativas do xbps-install."))
 	fmt.Println("Exemplos:")
 	fmt.Printf("  %s %s\n", green("vinstall"), white("telegram"))
 	fmt.Printf("  %s %s\n", green("vinstall"), white("-Syu"))
-	fmt.Printf("  %s %s\n", green("vinstall"), white("-X telegram (Remove pacote)"))
+	fmt.Printf("  %s %s %s\n", green("vinstall"), white("-X/-x"), white("pacote (Remover)"))
 	fmt.Printf("  %s %s %s\n", green("vinstall"), white("-Scc"), cyan("(Limpa cache de pacotes e assinaturas)"))
+	fmt.Printf("  %s %s %s\n", green("vinstall"), white("--history"), cyan("(Histórico de transações)"))
 }
 
 func runBinary(bin string, flags []string, pkg string) bool {
