@@ -6,7 +6,9 @@ import (
 	"howett.net/plist"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -16,28 +18,77 @@ import (
 )
 
 type Package struct {
-	Status      string
-	FullName    string
-	Description string
-	Repo        string
+	Status        string
+	FullName      string
+	Description   string
+	Repo          string
+	SizeDownload  int64
+	SizeInstalled int64
 }
 
 var (
-	cyan   = color.New(color.Bold, color.FgCyan).SprintFunc()
-	green  = color.New(color.FgGreen).SprintFunc()
-	white  = color.New(color.Bold, color.FgWhite).SprintFunc()
-	yellow = color.New(color.Bold, color.FgYellow).SprintFunc()
+	cyan    = color.New(color.Bold, color.FgCyan).SprintFunc()
+	green   = color.New(color.FgGreen).SprintFunc()
+	white   = color.New(color.Bold, color.FgWhite).SprintFunc()
+	yellow  = color.New(color.Bold, color.FgYellow).SprintFunc()
+	magenta = color.New(color.FgMagenta).SprintFunc()
+	red     = color.New(color.Bold, color.FgRed).SprintFunc()
 )
 
-// Reverte o escape do XBPS para exibir a URL original
-func formatRepoURL(path string) string {
-	base := filepath.Base(filepath.Dir(path))
-	// Reverte os underscores para caracteres da URL
-	// O padrão XBPS usa underscores para tudo que não é alfanumérico
-	url := strings.ReplaceAll(base, "___", "://")
-	url = strings.ReplaceAll(url, "__", "/")
-	url = strings.ReplaceAll(url, "_", "/")
-	return url
+func toInt64(v interface{}) int64 {
+	val := reflect.ValueOf(v)
+	switch val.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return val.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return int64(val.Uint())
+	case reflect.Float32, reflect.Float64:
+		return int64(val.Float())
+	}
+	return 0
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit { return fmt.Sprintf("%d B", b) }
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func getInstalledPackages() map[string]bool {
+	installed := make(map[string]bool)
+	cmd := exec.Command("xbps-query", "-l")
+	out, _ := cmd.Output()
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			installed[fields[1]] = true
+		}
+	}
+	return installed
+}
+
+// Retorna apenas os repositórios ativos (via xbps-query -L)
+func getActiveRepos() map[string]string {
+	repoMap := make(map[string]string)
+	cmd := exec.Command("xbps-query", "-L")
+	out, err := cmd.Output()
+	if err != nil { return repoMap }
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			url := fields[1]
+			// Converte URL para o nome da pasta padrão do XBPS
+			dirName := strings.NewReplacer(":", "_", "/", "_", ".", "_").Replace(url)
+			repoMap[dirName] = url
+		}
+	}
+	return repoMap
 }
 
 func main() {
@@ -46,66 +97,61 @@ func main() {
 		return
 	}
 	query := strings.ToLower(os.Args[1])
-
-	var repoPaths []string
-	filepath.Walk("/var/db/xbps/", func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && strings.HasSuffix(path, "x86_64-repodata") {
-			repoPaths = append(repoPaths, path)
-		}
-		return nil
-	})
-
+	repoMap := getActiveRepos()
+	installed := getInstalledPackages()
+	
 	var pkgs []Package
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	for _, path := range repoPaths {
-		wg.Add(1)
-		go func(p string) {
-			defer wg.Done()
+	for dirName, repoURL := range repoMap {
+		repoPath := filepath.Join("/var/db/xbps/", dirName, "x86_64-repodata")
+		
+		// Verifica se o arquivo existe antes de processar
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+			continue
+		}
 
+		wg.Add(1)
+		go func(p, url string) {
+			defer wg.Done()
 			file, err := os.Open(p)
 			if err != nil { return }
 			defer file.Close()
-
 			reader, err := zstd.NewReader(file)
 			if err != nil { return }
 			defer reader.Close()
-
 			data, err := io.ReadAll(reader)
 			if err != nil || len(data) <= 512 { return }
-
 			var index map[string]interface{}
-			if err := plist.NewDecoder(bytes.NewReader(data[512:])).Decode(&index); err != nil {
-				return
-			}
+			if err := plist.NewDecoder(bytes.NewReader(data[512:])).Decode(&index); err != nil { return }
 
-			// Converte o caminho para a URL legível uma única vez
-			cleanRepo := formatRepoURL(p)
+			for _, pkgData := range index {
+				pkg := pkgData.(map[string]interface{})
+				pkgVer := fmt.Sprintf("%v", pkg["pkgver"])
+				if strings.Contains(strings.ToLower(pkgVer), query) {
+					
+					status := red("[✘]")
+					if installed[pkgVer] {
+						status = green("[✔]")
+					}
 
-			var localMatches []Package
-			for pkgName, pkgData := range index {
-				if strings.Contains(strings.ToLower(pkgName), query) {
-					pkg := pkgData.(map[string]interface{})
-					localMatches = append(localMatches, Package{
-						Status:      "[ ]",
-						FullName:    fmt.Sprintf("%v", pkg["pkgver"]),
-						Description: pkg["short_desc"].(string),
-						Repo:        cleanRepo,
+					mu.Lock()
+					pkgs = append(pkgs, Package{
+						Status:        status,
+						FullName:      pkgVer,
+						Description:   pkg["short_desc"].(string),
+						Repo:          url,
+						SizeDownload:  toInt64(pkg["filename-size"]),
+						SizeInstalled: toInt64(pkg["installed_size"]),
 					})
+					mu.Unlock()
 				}
 			}
-
-			mu.Lock()
-			pkgs = append(pkgs, localMatches...)
-			mu.Unlock()
-		}(path)
+		}(repoPath, repoURL)
 	}
 	wg.Wait()
-
-	sort.Slice(pkgs, func(i, j int) bool {
-		return pkgs[i].FullName < pkgs[j].FullName
-	})
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].FullName < pkgs[j].FullName })
 
 	if len(pkgs) == 0 {
 		fmt.Println("Nenhum pacote encontrado.")
@@ -115,8 +161,8 @@ func main() {
 		fmt.Println(lineSeparator)
 		for i, p := range pkgs {
 			idx := yellow(fmt.Sprintf("[%2d]", i+1))
-			fmt.Printf("%s %s %-30s  %s\n", idx, white(p.Status), white(p.FullName), green(p.Description))
-			fmt.Printf("%9s%s\n", "", cyan(p.Repo))
+			fmt.Printf("%s %s %-30s  %s\n", idx, p.Status, white(p.FullName), green(p.Description))
+			fmt.Printf("%9s%s (%s / %s)\n", "", cyan(p.Repo), yellow(formatBytes(p.SizeDownload)), magenta(formatBytes(p.SizeInstalled)))
 		}
 		fmt.Println(lineSeparator)
 	}
