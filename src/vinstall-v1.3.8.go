@@ -42,6 +42,14 @@ var (
 	yellow = color.New(color.Bold, color.FgYellow).SprintFunc()
 )
 
+var repoMap map[string]string
+var cache = make(map[string]PackageDetails)
+
+type PackageDetails struct {
+    Repo string
+    Desc string
+}
+
 type winsize struct {
 	Row    uint16
 	Col    uint16
@@ -361,26 +369,127 @@ func showHistory() {
 
 // --- CONSULTA E MENU ---
 
-func fetchSuggestions(query string) []Package {
-	cmd := exec.Command("xbps-query", "-Rs", query)
+func loadRepoMap() {
+	repoMap = make(map[string]string)
+	cmd := exec.Command("xbps-query", "-L")
 	out, _ := cmd.Output()
-	var pkgs []Package
 	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) >= 3 {
-			desc := ""
-			if idx := strings.Index(line, f[2]); idx != -1 {
-				desc = strings.TrimSpace(line[idx+len(f[2]):])
-			}
-			pkgs = append(pkgs, Package{
-				Status:      f[0],
-				FullName:    f[1],
-				Description: desc,
-				Repository:  f[2], // Mantemos o valor original
-			})
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			url := fields[1]
+			// O nome do repositório (tag) no XBPS é, por padrão, 
+			// o último segmento da URL, mas alguns repositórios 
+			// personalizados usam nomes diferentes.
+			parts := strings.Split(url, "/")
+			tagName := parts[len(parts)-1]
+			
+			// Se o repositório for um "multilib" ou "nonfree" dentro de "current",
+			// o nome pode ser composto. Vamos salvar a URL completa.
+			repoMap[tagName] = url
+			
+			// Caso o repositório seja "current/multilib", o -Rs retorna "multilib"
+			// então vamos mapear também pelo último nome da URL.
+			repoMap[tagName] = url
 		}
 	}
-	return pkgs
+}
+
+func fetchSuggestions(query string) []Package {
+    cmd := exec.Command("xbps-query", "-Rs", query)
+    out, _ := cmd.Output()
+    var pkgs []Package
+    for _, line := range strings.Split(string(out), "\n") {
+        f := strings.Fields(line)
+        if len(f) >= 2 {
+            pkgs = append(pkgs, Package{
+                Status:   f[0],
+                FullName: f[1],
+            })
+        }
+    }
+    return pkgs
+}
+
+func getPackageDetails(name string) PackageDetails {
+    // Se já temos no cache, retorna instantaneamente
+    if val, ok := cache[name]; ok {
+        return val
+    }
+
+    // Se não, busca (apenas uma vez)
+    cmd := exec.Command("xbps-query", "-R", name)
+    out, _ := cmd.Output()
+    
+    // ... (seu parser que já estava funcionando bem) ...
+    
+    // Salva no cache antes de retornar
+    cache[name] = details
+    return details
+}
+
+func displaySearch(pkgs []Package, title string) {
+    if len(pkgs) == 0 { return }
+
+    width := getTerminalWidth()
+    lineSeparator := white(strings.Repeat("─", width))
+    maxNameLen := 40
+    maxIdxDigits := len(strconv.Itoa(len(pkgs)))
+
+    fmt.Printf("%s\n%s\n", cyan(title), lineSeparator)
+    
+    for i, p := range pkgs {
+        idx := yellow(fmt.Sprintf("[%*d]", maxIdxDigits, i+1))
+        statusColor := red(p.Status)
+        if p.Status == "[*]" { statusColor = green(p.Status) }
+
+        // EXIBIÇÃO IMEDIATA (sem esperar comando nenhum)
+        // Se a descrição não veio no Rs, exibimos um placeholder, 
+        // e se o usuário quiser o detalhe, ele seleciona o número.
+        fmt.Printf("%s %s %-*s\n", idx, statusColor, maxNameLen, p.FullName)
+    }
+    fmt.Println(lineSeparator)
+    fmt.Println(cyan("Digite o número do pacote para ver detalhes (repo/desc) ou 'q' para sair:"))
+}
+
+
+// ============================================================================
+
+func displaySearchOLD(pkgs []Package, title string) {
+    if len(pkgs) == 0 { return }
+    
+    width := getTerminalWidth()
+    lineSeparator := white(strings.Repeat("─", width))
+    maxNameLen := 40
+    maxIdxDigits := len(strconv.Itoa(len(pkgs)))
+
+    fmt.Printf("%s\n%s\n", cyan(title), lineSeparator)
+    
+    for i, p := range pkgs {
+        // Consulta o repositório e descrição real diretamente do sistema
+        cmd := exec.Command("xbps-query", "-R", p.FullName)
+        out, _ := cmd.Output()
+        
+        repoURL := "URL não encontrada"
+        desc := ""
+        for _, line := range strings.Split(string(out), "\n") {
+            if strings.HasPrefix(line, "repository:") {
+                repoURL = strings.TrimSpace(strings.TrimPrefix(line, "repository:"))
+            }
+            if strings.HasPrefix(line, "short_desc:") {
+                desc = strings.TrimSpace(strings.TrimPrefix(line, "short_desc:"))
+            }
+        }
+
+        idx := yellow(fmt.Sprintf("[%*d]", maxIdxDigits, i+1))
+        statusColor := red(p.Status)
+        if p.Status == "[*]" { statusColor = green(p.Status) }
+
+        fmt.Printf("%s %s %-*s  %s\n", idx, statusColor, maxNameLen, p.FullName, green(desc))
+        
+        indent := strings.Repeat(" ", maxIdxDigits + 8)
+        fmt.Printf("%s%s\n", indent, cyan(repoURL))
+    }
+    fmt.Println(lineSeparator)
 }
 
 func getRepoURL(pkgName string) string {
@@ -395,32 +504,6 @@ func getRepoURL(pkgName string) string {
 		}
 	}
 	return "https://void.voidbr.org/voidlinux/current" // Fallback
-}
-
-func displaySearch(pkgs []Package, title string) {
-	if len(pkgs) == 0 { return }
-	
-	width := getTerminalWidth()
-	lineSeparator := white(strings.Repeat("─", width))
-	maxNameLen := 0
-	for _, p := range pkgs { if len(p.FullName) > maxNameLen { maxNameLen = len(p.FullName) } }
-	if maxNameLen > 50 { maxNameLen = 50 }
-	maxIdxDigits := len(strconv.Itoa(len(pkgs)))
-
-	fmt.Printf("%s\n%s\n", cyan(title), lineSeparator)
-	for i, p := range pkgs {
-		idx := yellow(fmt.Sprintf("[%*d]", maxIdxDigits, i+1))
-		statusColor := red(p.Status)
-		if p.Status == "[*]" { statusColor = green(p.Status) }
-
-		fmt.Printf("%s %s %s  %s\n", idx, statusColor, white(fmt.Sprintf("%-*s", maxNameLen, p.FullName)), green(p.Description))
-		
-		// Recuo fixo + URL base limpa
-		indent := strings.Repeat(" ", maxIdxDigits + 7)
-		repoURL := "https://void.voidbr.org/voidlinux/current"
-		fmt.Printf("%s%s\n", indent, cyan(repoURL))
-	}
-	fmt.Println(lineSeparator)
 }
 
 func displayMenu(pkgs []Package, flags []string) {
