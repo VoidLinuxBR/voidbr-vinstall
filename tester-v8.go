@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
+	"bufio"
 
 	"github.com/fatih/color"
 	"github.com/klauspost/compress/zstd"
@@ -31,6 +32,7 @@ type Package struct {
 	Status        string
 	FullName      string
 	Description   string
+	Maintainer    string
 	Repo          string
 	SizeDownload  int64
 	SizeInstalled int64
@@ -140,7 +142,8 @@ func main() {
 				pkg := pkgData.(map[string]interface{})
 				pkgVer := fmt.Sprintf("%v", pkg["pkgver"])
 				if strings.Contains(strings.ToLower(pkgVer), query) {
-					status := red("[✘]")
+//				status := red("[✘]")
+					status := red("[-]")
 					if installed[pkgVer] {
 						status = green("[✔]")
 					}
@@ -150,6 +153,7 @@ func main() {
 						Status:        status,
 						FullName:      pkgVer,
 						Description:   pkg["short_desc"].(string),
+            Maintainer:    fmt.Sprintf("%v", pkg["maintainer"]),
 						Repo:          url,
 						SizeDownload:  toInt64(pkg["filename-size"]),
 						SizeInstalled: toInt64(pkg["installed_size"]),
@@ -168,11 +172,13 @@ func main() {
 		fmt.Printf("\n%s\n", cyan("Resultados encontrados nos repositórios:"))
     width := getTerminalWidth()
     fmt.Println(white(strings.Repeat("─", width)))
-		for i, p := range pkgs {
-			idx := yellow(fmt.Sprintf("[%2d]", i+1))
-			fmt.Printf("%s %s %s  %s\n", idx, p.Status, white(p.FullName), green(p.Description))
-			fmt.Printf("%9s%s (%s / %s)\n", "", cyan(p.Repo), yellow(formatBytes(p.SizeDownload)), magenta(formatBytes(p.SizeInstalled)))
-		}
+
+    writer := bufio.NewWriter(os.Stdout)
+    for i, p := range pkgs {
+        printPackage(writer, i, p, width)
+    }
+    writer.Flush()
+
     fmt.Println(white(strings.Repeat("─", width)))
 	}
 }
@@ -190,3 +196,30 @@ func getTerminalWidth() int {
   return 80
 }
 
+// 1. Função auxiliar de truncamento (coloque fora do main)
+func truncate(s string, max int) string {
+	if max < 3 { return "" }
+	if len(s) > max {
+		return s[:max-3] + "..."
+	}
+	return s
+}
+
+func printPackage(w *bufio.Writer, i int, p Package, width int) {
+	idxText := fmt.Sprintf("[%d]", i+1)
+
+	// Alinhamento exato do início do FullName
+	paddingSize := len(idxText) + 1 + 3 + 1
+
+	// Cálculo para truncamento preciso
+	lenPrefix := paddingSize + len(p.FullName) + 2
+	maxDesc := width - lenPrefix
+	descExibida := truncate(p.Description, maxDesc)
+
+	// Linha 1: [idx] [status] FullName  Description
+	fmt.Fprintf(w, "%s %s %s  %s\n", yellow(idxText), p.Status, white(p.FullName), green(descExibida))
+
+	// Linha 2: Repo | Maintainer (Size / Size)
+	// O paddingSize garante que o Repo comece na mesma coluna do FullName
+	fmt.Fprintf(w, "%*s%s | %s (%s / %s)\n", paddingSize, "", cyan(p.Repo), magenta(p.Maintainer), yellow(formatBytes(p.SizeDownload)), magenta(formatBytes(p.SizeInstalled)))
+}
