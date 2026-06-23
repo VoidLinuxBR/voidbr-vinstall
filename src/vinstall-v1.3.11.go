@@ -6,8 +6,8 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   ter 23 jun 2026 17:00:00 -04
-    Version:   1.3.9
+    Updated:   ter 23 jun 2026 19:50:00 -04
+    Version:   1.3.11
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
 
@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,7 +38,7 @@ import (
 )
 
 const (
-	Version   = "1.3.9"
+	Version   = "1.3.11"
 	Copyright = "Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>"
 )
 
@@ -45,7 +46,7 @@ var (
 	cyan    = color.New(color.Bold, color.FgCyan).SprintFunc()
 	green   = color.New(color.FgGreen).SprintFunc()
 	white   = color.New(color.Bold, color.FgWhite).SprintFunc()
-	red     = color.New(color.FgRed).SprintFunc()
+	red     = color.New(color.Bold, color.FgRed).SprintFunc()
 	yellow  = color.New(color.Bold, color.FgYellow).SprintFunc()
 	magenta = color.New(color.FgMagenta).SprintFunc()
 )
@@ -129,8 +130,6 @@ func runBinary(bin string, flags []string, pkgs []string) bool {
 	return true
 }
 
-// --- BUSCA DIRETA EM PLIST (XML LOCAL) ---
-
 func searchInLocalPlist(file string) bool {
 	dbPath := "/var/db/xbps"
 	files, err := ioutil.ReadDir(dbPath)
@@ -164,8 +163,6 @@ func searchInLocalPlist(file string) bool {
 	}
 	return foundLocal
 }
-
-// --- BUSCAS E PROVIDES (-F e -FR) ---
 
 func checkXlocateIndex() {
 	home, _ := os.UserHomeDir()
@@ -262,8 +259,6 @@ func listLocal(mode string, query string) {
 	fmt.Printf("\n%s %s: %s\n", yellow("[!]"), white("Total:"), cyan(strconv.Itoa(count)))
 }
 
-// --- MANUTENÇÃO ---
-
 func cleanXbpsCache() {
 	cachePath := "/var/cache/xbps"
 	if os.Geteuid() != 0 {
@@ -318,8 +313,6 @@ func cleanXbpsCache() {
 	}
 }
 
-// --- SERVIÇOS E HISTÓRICO ---
-
 func checkAndEnableService(pkgName string) {
 	servicePath := filepath.Join("/etc/sv", pkgName)
 	targetPath := filepath.Join("/var/service", pkgName)
@@ -366,7 +359,7 @@ func showHistory() {
 	fmt.Println(white(strings.Repeat("─", width)))
 }
 
-// --- NOVO MOTOR DE BUSCA (DETALHADO) ---
+// --- BUSCA DETALHADA E OTIMIZADA ---
 
 func toInt64(v interface{}) int64 {
 	val := reflect.ValueOf(v)
@@ -428,6 +421,9 @@ func remoteSearchDetailed(query string) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	re, _ := regexp.Compile("(?i)" + query)
+	queryLower := strings.ToLower(query)
+
 	for dirName, repoURL := range repoMap {
 		repoPath := filepath.Join("/var/db/xbps/", dirName, "x86_64-repodata")
 		if _, err := os.Stat(repoPath); os.IsNotExist(err) { continue }
@@ -447,14 +443,29 @@ func remoteSearchDetailed(query string) {
 			if err := plist.NewDecoder(bytes.NewReader(data[512:])).Decode(&index); err != nil { return }
 
 			for _, pkgData := range index {
-				pkg := pkgData.(map[string]interface{})
-				pkgVer := fmt.Sprintf("%v", pkg["pkgver"])
-				if strings.Contains(strings.ToLower(pkgVer), query) {
+				pkg, ok := pkgData.(map[string]interface{})
+				if !ok { continue }
+
+				// FULL TEXT SEARCH: Concatenar todos os valores para busca
+				var fullText string
+				for _, v := range pkg {
+					fullText += fmt.Sprint(v) + " "
+				}
+				
+				match := false
+				if re != nil {
+					match = re.MatchString(fullText)
+				} else {
+					match = strings.Contains(strings.ToLower(fullText), queryLower)
+				}
+
+				if match {
+					pkgVer := fmt.Sprintf("%v", pkg["pkgver"])
 					status := red("[-]")
 					if installed[pkgVer] { status = green("[✔]") }
 					mu.Lock()
 					pkgs = append(pkgs, Package{
-						Status: status, FullName: pkgVer, Description: pkg["short_desc"].(string),
+						Status: status, FullName: pkgVer, Description: fmt.Sprint(pkg["short_desc"]),
 						Maintainer: fmt.Sprintf("%v", pkg["maintainer"]), Repo: url,
 						SizeDownload: toInt64(pkg["filename-size"]), SizeInstalled: toInt64(pkg["installed_size"]),
 					})
@@ -479,10 +490,9 @@ func remoteSearchDetailed(query string) {
 	}
 }
 
-// --- FUNÇÕES DE BUSCA ORIGINAIS (MANTIDAS) ---
+// --- BUSCAS ORIGINAIS ---
 
 func fetchSuggestions(query string) []Package {
-    // Mantida para compatibilidade com o displayMenu original
 	cmd := exec.Command("xbps-query", "-Rs", query)
 	out, _ := cmd.Output()
 	var pkgs []Package
@@ -656,7 +666,7 @@ func printUsage() {
 	fmt.Printf("  %-20s %s\n", green("-Li"), white("Lista todos os pacotes instalados"))
 	fmt.Printf("  %-20s %s\n", green("-Lo"), white("Lista apenas pacotes órfãos"))
 	fmt.Printf("  %-20s %s\n", green("-Qs <query>"), white("Busca termo nos pacotes instalados"))
-	fmt.Printf("  %-20s %s\n", green("-Ss <query>"), white("Busca termo nos repositórios remotos"))
+	fmt.Printf("  %-20s %s\n", green("-Ss <query>"), white("Busca termo nos repositórios remotos (Full Text Search)"))
 	fmt.Println("\nManutenção:")
 	fmt.Printf("  %-20s %s\n", green("-Scc"), white("Limpa cache e órfãos"))
 	fmt.Printf("  %-20s %s\n", green("--history"), white("Mostra histórico de transações"))
