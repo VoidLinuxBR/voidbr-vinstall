@@ -398,7 +398,8 @@ func displaySearch(pkgs []Package, title string) {
 	for i, p := range pkgs {
 		idx := yellow(fmt.Sprintf("[%2d]", i+1))
 		statusColor := red(p.Status)
-		if p.Status == "[*]" {
+		//if p.Status == "[*]" {
+		if p.Status == "[✔]" {
 			statusColor = green(p.Status)
 		}
 		fmt.Printf("%s %s %s  %s\n", idx, statusColor, white(fmt.Sprintf("%-*s", maxNameLen, p.FullName)), green(p.Description))

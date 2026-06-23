@@ -18,20 +18,18 @@ import (
 )
 
 type Package struct {
-	Status        string
 	FullName      string
 	Description   string
-	Repo          string
 	SizeDownload  int64
 	SizeInstalled int64
+	IsInstalled   bool
 }
 
 var (
 	cyan    = color.New(color.Bold, color.FgCyan).SprintFunc()
-	green   = color.New(color.FgGreen).SprintFunc()
+	green   = color.New(color.Bold, color.FgGreen).SprintFunc()
 	white   = color.New(color.Bold, color.FgWhite).SprintFunc()
 	yellow  = color.New(color.Bold, color.FgYellow).SprintFunc()
-	magenta = color.New(color.FgMagenta).SprintFunc()
 	red     = color.New(color.Bold, color.FgRed).SprintFunc()
 )
 
@@ -49,22 +47,14 @@ func toInt64(v interface{}) int64 {
 }
 
 func formatBytes(b int64) string {
-	const unit = 1024
-	if b < unit { return fmt.Sprintf("%d B", b) }
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%dKB", b/1024)
 }
 
 func getInstalledPackages() map[string]bool {
 	installed := make(map[string]bool)
 	cmd := exec.Command("xbps-query", "-l")
 	out, _ := cmd.Output()
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
 			installed[fields[1]] = true
@@ -73,7 +63,6 @@ func getInstalledPackages() map[string]bool {
 	return installed
 }
 
-// Retorna apenas os repositórios ativos (via xbps-query -L)
 func getActiveRepos() map[string]string {
 	repoMap := make(map[string]string)
 	cmd := exec.Command("xbps-query", "-L")
@@ -83,7 +72,6 @@ func getActiveRepos() map[string]string {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
 			url := fields[1]
-			// Converte URL para o nome da pasta padrão do XBPS
 			dirName := strings.NewReplacer(":", "_", "/", "_", ".", "_").Replace(url)
 			repoMap[dirName] = url
 		}
@@ -99,18 +87,19 @@ func main() {
 	query := strings.ToLower(os.Args[1])
 	repoMap := getActiveRepos()
 	installed := getInstalledPackages()
-	
-	var pkgs []Package
+
+	type RepoResult struct {
+		URL      string
+		Packages []Package
+	}
+
+	var results []RepoResult
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	for dirName, repoURL := range repoMap {
 		repoPath := filepath.Join("/var/db/xbps/", dirName, "x86_64-repodata")
-		
-		// Verifica se o arquivo existe antes de processar
-		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-			continue
-		}
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) { continue }
 
 		wg.Add(1)
 		go func(p, url string) {
@@ -126,44 +115,61 @@ func main() {
 			var index map[string]interface{}
 			if err := plist.NewDecoder(bytes.NewReader(data[512:])).Decode(&index); err != nil { return }
 
+			var pkgs []Package
 			for _, pkgData := range index {
 				pkg := pkgData.(map[string]interface{})
 				pkgVer := fmt.Sprintf("%v", pkg["pkgver"])
 				if strings.Contains(strings.ToLower(pkgVer), query) {
-					
-					status := red("[✘]")
-					if installed[pkgVer] {
-						status = green("[✔]")
-					}
-
-					mu.Lock()
 					pkgs = append(pkgs, Package{
-						Status:        status,
 						FullName:      pkgVer,
 						Description:   pkg["short_desc"].(string),
-						Repo:          url,
 						SizeDownload:  toInt64(pkg["filename-size"]),
 						SizeInstalled: toInt64(pkg["installed_size"]),
+						IsInstalled:   installed[pkgVer],
 					})
-					mu.Unlock()
 				}
+			}
+
+			if len(pkgs) > 0 {
+				sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].FullName < pkgs[j].FullName })
+				mu.Lock()
+				results = append(results, RepoResult{URL: url, Packages: pkgs})
+				mu.Unlock()
 			}
 		}(repoPath, repoURL)
 	}
 	wg.Wait()
-	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].FullName < pkgs[j].FullName })
 
-	if len(pkgs) == 0 {
+	if len(results) == 0 {
 		fmt.Println("Nenhum pacote encontrado.")
 	} else {
-		fmt.Printf("\n%s\n", cyan("Resultados encontrados no repositório:"))
-		lineSeparator := white("──────────────────────────────────────────────────")
-		fmt.Println(lineSeparator)
-		for i, p := range pkgs {
-			idx := yellow(fmt.Sprintf("[%2d]", i+1))
-			fmt.Printf("%s %s %-30s  %s\n", idx, p.Status, white(p.FullName), green(p.Description))
-			fmt.Printf("%9s%s (%s / %s)\n", "", cyan(p.Repo), yellow(formatBytes(p.SizeDownload)), magenta(formatBytes(p.SizeInstalled)))
+		maxNameLen := 0
+		for _, repo := range results {
+			for _, p := range repo.Packages {
+				if len(p.FullName) > maxNameLen { maxNameLen = len(p.FullName) }
+			}
 		}
-		fmt.Println(lineSeparator)
+
+		counter := 1
+		for _, repo := range results {
+      fmt.Printf("%10s%s\n", "", cyan(repo.URL))
+			for _, p := range repo.Packages {
+				status := red("[-]")
+				if p.IsInstalled { status = green("[*]") }
+
+				// Fixando 6 caracteres para cada lado: %6.6s / %6.6s
+				sDown := formatBytes(p.SizeDownload)
+				sInst := formatBytes(p.SizeInstalled)
+				sizeStr := fmt.Sprintf("[%6.6s|%6.6s]", sDown, sInst)
+
+				fmt.Printf(" %-5s %s %-*s  %s %s\n",
+					fmt.Sprintf("[%d]", counter),
+					status,
+					maxNameLen, white(p.FullName),
+					yellow(sizeStr),
+					green(p.Description))
+				counter++
+			}
+		}
 	}
 }
