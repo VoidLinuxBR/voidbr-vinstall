@@ -6,7 +6,7 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   sex 13 mar 2026 22:45:00 -04
+    Updated:   qui 02 jul 2026 00:24:34 -04
     Version:   1.3.7
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
@@ -60,6 +60,8 @@ type Package struct {
 	FullName    string
 	Description string
 }
+
+var filter string
 
 // --- UTILITÁRIOS ---
 
@@ -557,9 +559,21 @@ func mainOLD() {
 		if len(targets) > 0 {
 			listLocal("search", targets[0])
 		}
-	case "remote-search":
+case "remote-search":
 		if len(targets) > 0 {
-			displaySearch(fetchSuggestions(targets[0]), "\nResultados encontrados no repositório:")
+			pkgs := fetchSuggestions(targets[0])
+			
+			// 1. Limpeza rigorosa: usamos a função uniquePackages
+			// que já existe no seu código e usa o p.FullName
+			pkgs = uniquePackages(pkgs) 
+			
+			// 2. Filtro de status (installed/missing)
+			if filter != "" {
+				pkgs = filterPackages(pkgs, filter)
+			}
+			
+			// 3. Exibição da lista limpa
+			displaySearch(pkgs, "\nResultados encontrados no repositório:")
 		}
 	case "remove":
 		if len(targets) > 0 {
@@ -586,6 +600,20 @@ func mainOLD() {
 	}
 }
 
+func uniquePackages(pkgs []Package) []Package {
+	keys := make(map[string]bool)
+	var list []Package
+	for _, p := range pkgs {
+		// Remove a versão para comparar apenas o nome base
+		baseName := cleanVersion(p.FullName) 
+		if !keys[baseName] {
+			keys[baseName] = true
+			list = append(list, p)
+		}
+	}
+	return list
+}
+
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -596,7 +624,7 @@ func main() {
 	var targets []string
 	mode := "install"
 	searchRemote := false
-	filter := "" // Novo filtro
+  	filter := "" // Novo filtro
 
 	for _, arg := range args {
 		switch arg {
@@ -657,9 +685,11 @@ func main() {
 		if len(targets) > 0 {
 			listLocal("search", targets[0])
 		}
-	case "remote-search":
+case "remote-search":
 		if len(targets) > 0 {
 			pkgs := fetchSuggestions(targets[0])
+			pkgs = uniquePackages(pkgs) // Limpa duplicatas pelo nome base
+			
 			if filter != "" {
 				pkgs = filterPackages(pkgs, filter)
 			}
@@ -712,8 +742,9 @@ func printUsage() {
 	fmt.Println("\nAtalhos de Consulta:")
 	fmt.Printf("  %-20s %s\n", green("-Li"), white("Lista todos os pacotes instalados"))
 	fmt.Printf("  %-20s %s\n", green("-Lo"), white("Lista apenas pacotes órfãos"))
-	fmt.Printf("  %-20s %s\n", green("-Qs <query>"), white("Busca termo nos pacotes instalados"))
-	fmt.Printf("  %-20s %s\n", green("-Ss <query>"), white("Busca termo nos repositórios remotos"))
+	fmt.Printf("  %-20s %s\n", green("-Ss <query>"), white("Busca termo nos repositórios"))
+  fmt.Printf("  %-20s %s\n", green("-Ssi <query>"), white("Busca termo nos pacotes instalados"))
+	fmt.Printf("  %-20s %s\n", green("-Ssu <query>"), white("Busca termo nos pacotes NÃO instalados"))
 	fmt.Println("\nManutenção:")
 	fmt.Printf("  %-20s %s\n", green("-Scc"), white("Limpa cache e órfãos"))
 	fmt.Printf("  %-20s %s\n", green("--history"), white("Mostra histórico de transações"))
