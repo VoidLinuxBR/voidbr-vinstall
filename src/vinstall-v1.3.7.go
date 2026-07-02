@@ -491,17 +491,6 @@ func displayMenu(pkgs []Package, flags []string) {
 	}
 }
 
-func filterPackages(pkgs []Package, mode string) []Package {
-	var filtered []Package
-	for _, p := range pkgs {
-		isInstalled := strings.Contains(p.Status, "*")
-		if (mode == "installed" && isInstalled) || (mode == "missing" && !isInstalled) {
-			filtered = append(filtered, p)
-		}
-	}
-	return filtered
-}
-
 // --- MAIN ---
 
 func mainOLD() {
@@ -603,40 +592,110 @@ func main() {
 		printUsage()
 		return
 	}
+	var flags []string
+	var targets []string
+	mode := "install"
+	searchRemote := false
+	filter := "" // Novo filtro
 
-	mode := ""
-	if args[0] == "-Ss" {
-		mode = "remote-search"
-	}
-	// ... (outros casos de uso)
-
-	switch mode {
-	case "remote-search":
-		filter := ""
-		query := ""
-		for _, arg := range args {
-			switch arg {
-			case "-i":
-				filter = "installed"
-			case "-u":
-				filter = "missing"
-			case "-Ss":
-				continue
-			default:
-				query = arg
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help":
+			printUsage()
+			return
+		case "-v", "--version":
+			fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
+			return
+		case "--history":
+			mode = "history"
+		case "-Scc":
+			mode = "clean"
+		case "-X", "-x":
+			mode = "remove"
+		case "-F":
+			mode = "find"
+		case "-FR":
+			mode = "find"
+			searchRemote = true
+		case "-Li":
+			mode = "list-installed"
+		case "-Lo":
+			mode = "list-orphans"
+		case "-Qs":
+			mode = "query-search"
+		case "-Ss":
+			mode = "remote-search"
+		case "-Ssi": // Novo: instalados
+			mode = "remote-search"
+			filter = "installed"
+		case "-Ssu": // Novo: não instalados
+			mode = "remote-search"
+			filter = "missing"
+		default:
+			if strings.HasPrefix(arg, "-") {
+				flags = append(flags, arg)
+			} else {
+				targets = append(targets, arg)
 			}
 		}
+	}
 
-		if query != "" {
-			pkgs := fetchSuggestions(query)
+	switch mode {
+	case "history":
+		showHistory()
+	case "clean":
+		cleanXbpsCache()
+	case "find":
+		if len(targets) > 0 {
+			findProvides(targets[0], searchRemote)
+		}
+	case "list-installed":
+		listLocal("installed", "")
+	case "list-orphans":
+		listLocal("orphans", "")
+	case "query-search":
+		if len(targets) > 0 {
+			listLocal("search", targets[0])
+		}
+	case "remote-search":
+		if len(targets) > 0 {
+			pkgs := fetchSuggestions(targets[0])
 			if filter != "" {
 				pkgs = filterPackages(pkgs, filter)
 			}
-			displaySearch(pkgs, "\nResultados:")
+			displaySearch(pkgs, "\nResultados encontrados no repositório:")
 		}
-	
-	// ... (restante do seu switch case)
+	case "remove":
+		if len(targets) > 0 {
+			runBinary("xbps-remove", flags, targets)
+		}
+	default:
+		if len(targets) > 0 {
+			if !runBinary("xbps-install", flags, targets) {
+				suggestions := fetchSuggestions(targets[0])
+				if len(suggestions) > 0 {
+					displayMenu(suggestions, flags)
+				}
+			} else {
+				for _, t := range targets {
+					checkAndEnableService(t)
+				}
+			}
+		} else if len(flags) > 0 {
+			runBinary("xbps-install", flags, []string{})
+		}
 	}
+}
+
+func filterPackages(pkgs []Package, mode string) []Package {
+	var filtered []Package
+	for _, p := range pkgs {
+		isInstalled := strings.Contains(p.Status, "*")
+		if (mode == "installed" && isInstalled) || (mode == "missing" && !isInstalled) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 func printUsage() {
