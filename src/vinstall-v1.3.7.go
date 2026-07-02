@@ -488,16 +488,16 @@ func displaySearch(pkgs []Package, title string) {
 	fmt.Printf("%s\n%s\n", cyan(title), lineSeparator)
 	for i, p := range pkgs {
 		idx := yellow(fmt.Sprintf("[%2d]", i+1))
-		
+
 		// Status com alinhamento fixo (4 caracteres)
 		statusDisplay := "[-] "
 		statusColor := red(statusDisplay)
-		
+
 		if strings.Contains(p.Status, "*") {
 			statusDisplay = "[✓] "
 			statusColor = green_bold(statusDisplay)
 		}
-		
+
 		fmt.Printf("%s %s %s  %s\n", idx, statusColor, white(fmt.Sprintf("%-*s", maxNameLen, p.FullName)), green(p.Description))
 	}
 	fmt.Println(lineSeparator)
@@ -584,12 +584,16 @@ func main() {
 		case "-Ssu": // Novo: não instalados
 			mode = "remote-search"
 			filter = "missing"
-		default:
-			if strings.HasPrefix(arg, "-") {
-				flags = append(flags, arg)
-			} else {
-				targets = append(targets, arg)
-			}
+    default:
+      // Captura dinâmica para -Q*
+      if strings.HasPrefix(arg, "-Q") {
+        mode = "query-generic"
+        filter = strings.Replace(arg, "-Q", "-", 1)
+      } else if strings.HasPrefix(arg, "-") {
+        flags = append(flags, arg)
+      } else {
+        targets = append(targets, arg)
+      }
 		}
 	}
 
@@ -610,11 +614,11 @@ func main() {
 		if len(targets) > 0 {
 			listLocal("search", targets[0])
 		}
-case "remote-search":
+  case "remote-search":
 		if len(targets) > 0 {
 			pkgs := fetchSuggestions(targets[0])
 			pkgs = uniquePackages(pkgs) // Limpa duplicatas pelo nome base
-			
+
 			if filter != "" {
 				pkgs = filterPackages(pkgs, filter)
 			}
@@ -624,6 +628,8 @@ case "remote-search":
 		if len(targets) > 0 {
 			runBinary("xbps-remove", flags, targets)
 		}
+  case "query-generic":
+    runBinary("xbps-query", []string{filter}, targets)
 	default:
 		if len(targets) > 0 {
 			if !runBinary("xbps-install", flags, targets) {
@@ -670,6 +676,8 @@ func printUsage() {
 	fmt.Printf("  %-20s %s\n", green("-Ss <query>"), white("Busca termo nos repositórios"))
   fmt.Printf("  %-20s %s\n", green("-Ssi <query>"), white("Busca termo nos pacotes instalados"))
 	fmt.Printf("  %-20s %s\n", green("-Ssu <query>"), white("Busca termo nos pacotes NÃO instalados"))
+	fmt.Println("\nAtalhos do query:")
+  fmt.Printf("  %-20s %s\n", green("-Q<flags>"), white("Executa xbps-query com flags (ex: -QL, -QRs)"))
 	fmt.Println("\nManutenção:")
 	fmt.Printf("  %-20s %s\n", green("-Scc"), white("Limpa cache e órfãos"))
 	fmt.Printf("  %-20s %s\n", green("--history"), white("Mostra histórico de transações"))
