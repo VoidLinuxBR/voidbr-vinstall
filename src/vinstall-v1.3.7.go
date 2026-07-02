@@ -127,6 +127,37 @@ func runBinary(bin string, flags []string, pkgs []string) bool {
 
 // --- BUSCA DIRETA EM PLIST (XML LOCAL) ---
 
+func searchInLocalPlistGREP(file string) bool {
+	// O grep busca o padrão 'file' dentro de todos os arquivos *-files.plist.
+	// -l: lista apenas os nomes dos arquivos que contêm o termo.
+	// -s: suprime mensagens de erro (ex: caso não encontre nada).
+	// O resultado do grep será uma lista de caminhos de arquivos.
+	cmd := exec.Command("grep", "-ls", file, "/var/db/xbps/" + "*-files.plist")
+	output, err := cmd.Output()
+
+	if err != nil || len(output) == 0 {
+		return false
+	}
+
+	foundLocal := false
+	// Processa cada linha retornada pelo grep, que corresponde a um pacote
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		
+		// Extrai o nome do pacote do caminho completo do arquivo plist
+		// Exemplo: /var/db/xbps/bash-5.1.0_1-files.plist -> bash-5.1.0_1
+		pkgName := filepath.Base(line)
+		pkgName = strings.TrimSuffix(pkgName, "-files.plist")
+		
+		fmt.Println(green(pkgName + " (instalado localmente via plist)"))
+		foundLocal = true
+	}
+	return foundLocal
+}
+
 func searchInLocalPlist(file string) bool {
 	dbPath := "/var/db/xbps"
 	files, err := ioutil.ReadDir(dbPath)
@@ -493,126 +524,21 @@ func displayMenu(pkgs []Package, flags []string) {
 	}
 }
 
-// --- MAIN ---
-
-func mainOLD() {
-	args := os.Args[1:]
-	if len(args) == 0 {
-		printUsage()
-		return
-	}
-	var flags []string
-	var targets []string
-	mode := "install"
-	searchRemote := false
-
-	for _, arg := range args {
-		switch arg {
-		case "-h", "--help":
-			printUsage()
-			return
-		case "-v", "--version":
-			fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
-			return
-		case "--history":
-			mode = "history"
-		case "-Scc":
-			mode = "clean"
-		case "-X", "-x":
-			mode = "remove"
-		case "-F":
-			mode = "find"
-		case "-FR":
-			mode = "find"
-			searchRemote = true
-		case "-Li":
-			mode = "list-installed"
-		case "-Lo":
-			mode = "list-orphans"
-		case "-Qs":
-			mode = "query-search"
-		case "-Ss":
-			mode = "remote-search"
-		default:
-			if strings.HasPrefix(arg, "-") {
-				flags = append(flags, arg)
-			} else {
-				targets = append(targets, arg)
-			}
-		}
-	}
-
-	switch mode {
-	case "history":
-		showHistory()
-	case "clean":
-		cleanXbpsCache()
-	case "find":
-		if len(targets) > 0 {
-			findProvides(targets[0], searchRemote)
-		}
-	case "list-installed":
-		listLocal("installed", "")
-	case "list-orphans":
-		listLocal("orphans", "")
-	case "query-search":
-		if len(targets) > 0 {
-			listLocal("search", targets[0])
-		}
-case "remote-search":
-		if len(targets) > 0 {
-			pkgs := fetchSuggestions(targets[0])
-			
-			// 1. Limpeza rigorosa: usamos a função uniquePackages
-			// que já existe no seu código e usa o p.FullName
-			pkgs = uniquePackages(pkgs) 
-			
-			// 2. Filtro de status (installed/missing)
-			if filter != "" {
-				pkgs = filterPackages(pkgs, filter)
-			}
-			
-			// 3. Exibição da lista limpa
-			displaySearch(pkgs, "\nResultados encontrados no repositório:")
-		}
-	case "remove":
-		if len(targets) > 0 {
-			runBinary("xbps-remove", flags, targets)
-		}
-	default:
-		if len(targets) > 0 {
-			// Tenta a instalação.
-			if !runBinary("xbps-install", flags, targets) {
-				// Só tenta buscar sugestões se xbps-install falhar
-				suggestions := fetchSuggestions(targets[0])
-				if len(suggestions) > 0 {
-					displayMenu(suggestions, flags)
-				}
-			} else {
-				// Sucesso: verifica serviços Runit
-				for _, t := range targets {
-					checkAndEnableService(t)
-				}
-			}
-		} else if len(flags) > 0 {
-			runBinary("xbps-install", flags, []string{})
-		}
-	}
-}
-
 func uniquePackages(pkgs []Package) []Package {
-	keys := make(map[string]bool)
-	var list []Package
-	for _, p := range pkgs {
-		// Remove a versão para comparar apenas o nome base
-		baseName := cleanVersion(p.FullName) 
-		if !keys[baseName] {
-			keys[baseName] = true
-			list = append(list, p)
-		}
-	}
-	return list
+  keys := make(map[string]bool)
+  var list []Package
+  for _, p := range pkgs {
+    // Remove a versão para comparar apenas o nome base
+    baseName := cleanVersion(p.FullName) 
+    if !keys[baseName] {
+      keys[baseName] = true
+      list = append(list, p)
+    }
+  }
+  return list
 }
+
+// --- MAIN ---
 
 func main() {
 	args := os.Args[1:]
@@ -624,7 +550,6 @@ func main() {
 	var targets []string
 	mode := "install"
 	searchRemote := false
-  	filter := "" // Novo filtro
 
 	for _, arg := range args {
 		switch arg {
