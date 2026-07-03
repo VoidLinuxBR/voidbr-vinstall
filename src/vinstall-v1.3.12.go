@@ -459,7 +459,7 @@ func remoteSearchDetailed(query string) {
 
 				sizeDown := toInt64(pkg["filename-size"])
 				sizeInst := toInt64(pkg["installed_size"])
-				
+
 				// Monta a string de busca normalizada
 				fullText := fmt.Sprintf("%v %v %v %d %s %d %s %v",
 					pkg["pkgver"],
@@ -471,7 +471,7 @@ func remoteSearchDetailed(query string) {
 					strings.ReplaceAll(formatBytes(sizeInst), " ", ""),
 					url,
 				)
-				
+
 				fullTextClean := strings.ToLower(strings.ReplaceAll(fullText, " ", ""))
 
 				if strings.Contains(fullTextClean, queryClean) {
