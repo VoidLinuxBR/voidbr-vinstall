@@ -86,12 +86,15 @@ func main() {
 	mode := "install"
 	searchRemote := false
 
+  fmt.Print("\033[36m")
+  defer fmt.Print("\033[0m")
+
 	for _, arg := range args {
 		switch arg {
 		case "-h", "--help":
 			printUsage()
 			return
-		case "-v", "--version":
+		case "-V", "--version":
 			fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
 			return
 		case "--history":
@@ -129,9 +132,8 @@ func main() {
       } else {
         targets = append(targets, arg)
       }
-		}
-	}
-
+    }
+  }
 	switch mode {
 	case "history":
 		showHistory()
@@ -222,6 +224,11 @@ func cleanVersion(fullName string) string {
 
 func runBinary(bin string, flags []string, pkgs []string) bool {
 //fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan( bin ), cyan( flags), yellow(pkgs))
+  fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan(bin), yellow(fmt.Sprint(flags)), magenta(fmt.Sprint(pkgs)))
+
+  fmt.Print("\033[36m")
+  defer fmt.Print("\033[0m")
+
 	params := []string{bin}
 	params = append(params, flags...)
 	params = append(params, pkgs...)
