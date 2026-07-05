@@ -6,8 +6,8 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   dom 05 jul 2026 10:15:00 -04
-    Version:   0.3.8-stable
+    Updated:   dom 05 jul 2026 10:25:00 -04
+    Version:   0.3.6
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
 
@@ -59,15 +59,12 @@ func colorize(line, query string) string {
 	return line[:idx] + Bold + Yellow + foundText + Reset + line[idx+len(query):]
 }
 
-// Função auxiliar para desenhar o status
 func printStatus(buffer string) {
-	status := ""
 	if paused {
-		status = Red + "[PAUSADO - Pressione ESPAÇO para retomar]" + Reset
+		fmt.Printf("\r\033[K%s[PAUSADO - Pressione ESPAÇO para retomar]%s", Red, Reset)
 	} else {
-		status = Yellow + "[ESPAÇO: Pausar | FILTRO: " + dynamicQuery + "] " + buffer + Reset
+		fmt.Printf("\r\033[K%s[ESPAÇO: Pausar | FILTRO: %s] %s%s", Yellow, dynamicQuery, buffer, Reset)
 	}
-	fmt.Printf("\r\033[K%s", status)
 }
 
 func main() {
@@ -83,8 +80,10 @@ func main() {
 			isPaused := paused
 			pauseMu.RUnlock()
 			if !isPaused {
-				fmt.Printf("\r\033[K%s\n", msg)
-				printStatus("") // Redesenha a linha de status após o log
+				// LOG LIVRE: Imprime e quebra linha, deixando o terminal rolar
+				fmt.Printf("%s\n", msg)
+				// Redesenha a status bar abaixo do log
+				printStatus("")
 			}
 		}
 	}()
@@ -97,7 +96,6 @@ func main() {
 		var buffer string
 		for {
 			char, _ := reader.ReadByte()
-
 			if char == ' ' {
 				pauseMu.Lock()
 				paused = !paused
@@ -135,7 +133,6 @@ func main() {
 						q := strings.ToLower(dynamicQuery)
 						loweredLine := strings.ToLower(line)
 						queryMu.RUnlock()
-						
 						if q == "" || strings.Contains(loweredLine, q) {
 							logChan <- colorize(line, dynamicQuery)
 						}
