@@ -6,7 +6,7 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   qui 02 jul 2026 00:24:34 -04
+    Updated:   ter 07 jul 2026 11:40:21 -04
     Version:   1.3.7
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
@@ -72,8 +72,6 @@ type Package struct {
 }
 
 var filter string
-
-// --- MAIN ---
 
 func main() {
 	args := os.Args[1:]
@@ -159,7 +157,8 @@ func main() {
 			if filter != "" {
 				pkgs = filterPackages(pkgs, filter)
 			}
-			displaySearch(pkgs, "\nResultados encontrados no repositório:")
+//      displaySearch(pkgs, "Resultados encontrados no repositório:")
+      displaySearch(pkgs, "")
 		}
 	case "remove":
 		if len(targets) > 0 {
@@ -223,7 +222,7 @@ func cleanVersion(fullName string) string {
 // --- CORE: EXECUÇÃO ---
 
 func runBinary(bin string, flags []string, pkgs []string) bool {
-//fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan( bin ), cyan( flags), yellow(pkgs))
+  //fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan( bin ), cyan( flags), yellow(pkgs))
   fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan(bin), yellow(fmt.Sprint(flags)), magenta(fmt.Sprint(pkgs)))
 
   fmt.Print("\033[36m")
@@ -274,12 +273,12 @@ func searchInLocalPlistGREP(file string) bool {
 		if line == "" {
 			continue
 		}
-		
+
 		// Extrai o nome do pacote do caminho completo do arquivo plist
 		// Exemplo: /var/db/xbps/bash-5.1.0_1-files.plist -> bash-5.1.0_1
 		pkgName := filepath.Base(line)
 		pkgName = strings.TrimSuffix(pkgName, "-files.plist")
-		
+
 		fmt.Println(green(pkgName + " (instalado localmente via plist)"))
 		foundLocal = true
 	}
@@ -426,7 +425,8 @@ func listLocal(mode string, query string) {
 func cleanXbpsCache() {
 	cachePath := "/var/cache/xbps"
 	if os.Geteuid() != 0 {
-		fmt.Printf("%s %s\n", yellow("[vinstall]"), white("A limpeza do cache requer privilégios de root."))
+    //fmt.Printf("%s %s %s\n", cyan(">>>"), yellow("[vinstall]"), white("A limpeza do cache requer privilégios de root."))
+    //fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan("vinstall"), yellow("[-Scc]"), magenta("[A limpeza do cache requer privilégios de root.]"))
 		cmd := exec.Command("sudo", os.Args[0], "-Scc")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -442,7 +442,8 @@ func cleanXbpsCache() {
 
 	var pkgCount int
 	var totalSize int64
-	fmt.Printf("%s %s\n", cyan("[vinstall]"), white("Iniciando limpeza do cache..."))
+  //fmt.Printf("%s %s\n", cyan("[vinstall]"), white("Iniciando limpeza do cache..."))
+	fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan("vinstall"), yellow("[-Scc]"), magenta("[Iniciando limpeza do cache...]"))
 
 	for _, file := range files {
 		if file.IsDir() {
@@ -464,17 +465,25 @@ func cleanXbpsCache() {
 	fmt.Printf("%s %s %s\n", yellow("[!]"), white("Removidos:"), cyan(strconv.Itoa(pkgCount)))
 	fmt.Printf("%s %s %s\n", yellow("[!]"), white("Espaço livre:"), green(formatBytes(totalSize)))
 
-	cmd := exec.Command("xbps-query", "-O")
-	out, _ := cmd.Output()
-	if orphans := strings.TrimSpace(string(out)); orphans != "" {
-		fmt.Printf("%s %s\n%s\n", yellow("[!]"), white("Órfãos encontrados:"), cyan(orphans))
-		fmt.Printf("%s ", white("Remover órfãos? [s/N]: "))
-		reader := bufio.NewReader(os.Stdin)
-		ans, _ := reader.ReadString('\n')
-		if a := strings.ToLower(strings.TrimSpace(ans)); a == "s" || a == "sim" {
-			runBinary("xbps-remove", []string{"-o"}, []string{})
-		}
-	}
+//	cmd := exec.Command("xbps-query", "-O")
+//	out, _ := cmd.Output()
+//	if orphans := strings.TrimSpace(string(out)); orphans != "" {
+//		fmt.Printf("%s %s\n%s\n", yellow("[!]"), white("Órfãos encontrados:"), cyan(orphans))
+//		fmt.Printf("%s ", white("Remover órfãos? [s/N]: "))
+//		reader := bufio.NewReader(os.Stdin)
+//		ans, _ := reader.ReadString('\n')
+//		if a := strings.ToLower(strings.TrimSpace(ans)); a == "s" || a == "sim" {
+//			runBinary("xbps-remove", []string{"-o"}, []string{})
+//		}
+//	}
+
+  // Verificação automática de órfãos
+  cmd := exec.Command("xbps-query", "-O")
+  out, _ := cmd.Output()
+  if orphans := strings.TrimSpace(string(out)); orphans != "" {
+    fmt.Printf("%s %s\n%s\n", yellow("[!]"), white("Órfãos encontrados, removendo:"), cyan(orphans))
+    runBinary("xbps-remove", []string{"-o", "-y"}, []string{})
+  }
 }
 
 // --- SERVIÇOS E HISTÓRICO ---
@@ -566,7 +575,8 @@ func displaySearch(pkgs []Package, title string) {
 		maxNameLen = 50
 	}
 
-	fmt.Printf("%s\n%s\n", cyan(title), lineSeparator)
+//	fmt.Printf("%s\n%s\n", cyan(title), lineSeparator)
+	fmt.Printf("%s%s\n", cyan(title), lineSeparator)
 	for i, p := range pkgs {
 		idx := yellow(fmt.Sprintf("[%2d]", i+1))
 
