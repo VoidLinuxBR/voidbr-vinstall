@@ -67,6 +67,100 @@ type Package struct {
 	SizeInstalled int64
 }
 
+
+// --- MAIN ---
+
+func main() {
+	args := os.Args[1:]
+	if len(args) == 0 {
+		printUsage()
+		return
+	}
+	var flags []string
+	var targets []string
+	mode := "install"
+	searchRemote := false
+
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help":
+			printUsage()
+			return
+		case "-v", "--version":
+			fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
+			return
+		case "--history":
+			mode = "history"
+		case "-Scc":
+			mode = "clean"
+		case "-X", "-x":
+			mode = "remove"
+		case "-F":
+			mode = "find"
+		case "-FR":
+			mode = "find"
+			searchRemote = true
+		case "-Li":
+			mode = "list-installed"
+		case "-Lo":
+			mode = "list-orphans"
+		case "-Qs":
+			mode = "query-search"
+		case "-Ss":
+			mode = "remote-search"
+		default:
+			if strings.HasPrefix(arg, "-") {
+				flags = append(flags, arg)
+			} else {
+				targets = append(targets, arg)
+			}
+		}
+	}
+
+	switch mode {
+	case "history":
+		showHistory()
+	case "clean":
+		cleanXbpsCache()
+	case "find":
+		if len(targets) > 0 {
+			findProvides(targets[0], searchRemote)
+		}
+	case "list-installed":
+		listLocal("installed", "")
+	case "list-orphans":
+		listLocal("orphans", "")
+	case "query-search":
+		if len(targets) > 0 {
+			listLocal("search", targets[0])
+		}
+	case "remote-search":
+		if len(targets) > 0 {
+			remoteSearchDetailed(targets[0])
+		}
+	case "remove":
+		if len(targets) > 0 {
+			runBinary("xbps-remove", flags, targets)
+		}
+	default:
+		if len(targets) > 0 {
+      flags = append(flags, "--ignore-file-conflicts")
+			if !runBinary("xbps-install", flags, targets) {
+				suggestions := fetchSuggestions(targets[0])
+				if len(suggestions) > 0 {
+					displayMenu(suggestions, flags)
+				}
+			} else {
+				for _, t := range targets {
+					checkAndEnableService(t)
+				}
+			}
+		} else if len(flags) > 0 {
+			runBinary("xbps-install", flags, []string{})
+		}
+	}
+}
+
 // --- UTILITÁRIOS ---
 
 func formatBytes(b int64) string {
@@ -578,98 +672,6 @@ func displayMenu(pkgs []Package, flags []string) {
 		name := cleanVersion(pkgs[choice-1].FullName)
 		if runBinary("xbps-install", flags, []string{name}) {
 			checkAndEnableService(name)
-		}
-	}
-}
-
-// --- MAIN ---
-
-func main() {
-	args := os.Args[1:]
-	if len(args) == 0 {
-		printUsage()
-		return
-	}
-	var flags []string
-	var targets []string
-	mode := "install"
-	searchRemote := false
-
-	for _, arg := range args {
-		switch arg {
-		case "-h", "--help":
-			printUsage()
-			return
-		case "-v", "--version":
-			fmt.Printf("%s %s\n", white("vinstall"), cyan("v"+Version))
-			return
-		case "--history":
-			mode = "history"
-		case "-Scc":
-			mode = "clean"
-		case "-X", "-x":
-			mode = "remove"
-		case "-F":
-			mode = "find"
-		case "-FR":
-			mode = "find"
-			searchRemote = true
-		case "-Li":
-			mode = "list-installed"
-		case "-Lo":
-			mode = "list-orphans"
-		case "-Qs":
-			mode = "query-search"
-		case "-Ss":
-			mode = "remote-search"
-		default:
-			if strings.HasPrefix(arg, "-") {
-				flags = append(flags, arg)
-			} else {
-				targets = append(targets, arg)
-			}
-		}
-	}
-
-	switch mode {
-	case "history":
-		showHistory()
-	case "clean":
-		cleanXbpsCache()
-	case "find":
-		if len(targets) > 0 {
-			findProvides(targets[0], searchRemote)
-		}
-	case "list-installed":
-		listLocal("installed", "")
-	case "list-orphans":
-		listLocal("orphans", "")
-	case "query-search":
-		if len(targets) > 0 {
-			listLocal("search", targets[0])
-		}
-	case "remote-search":
-		if len(targets) > 0 {
-			remoteSearchDetailed(targets[0])
-		}
-	case "remove":
-		if len(targets) > 0 {
-			runBinary("xbps-remove", flags, targets)
-		}
-	default:
-		if len(targets) > 0 {
-			if !runBinary("xbps-install", flags, targets) {
-				suggestions := fetchSuggestions(targets[0])
-				if len(suggestions) > 0 {
-					displayMenu(suggestions, flags)
-				}
-			} else {
-				for _, t := range targets {
-					checkAndEnableService(t)
-				}
-			}
-		} else if len(flags) > 0 {
-			runBinary("xbps-install", flags, []string{})
 		}
 	}
 }
