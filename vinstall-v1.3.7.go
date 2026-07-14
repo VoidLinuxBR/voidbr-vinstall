@@ -1,4 +1,6 @@
 /*
+    xbps-query -R -p run_depends -s sdbus-cpp
+
     voidbr-vinstall
     Wrapper para o Void xbps-query e xbps-install
 
@@ -168,6 +170,7 @@ func main() {
     runBinary("xbps-query", []string{filter}, targets)
 	default:
 		if len(targets) > 0 {
+      flags = append(flags, "--ignore-file-conflicts")
 			if !runBinary("xbps-install", flags, targets) {
 				suggestions := fetchSuggestions(targets[0])
 				if len(suggestions) > 0 {
