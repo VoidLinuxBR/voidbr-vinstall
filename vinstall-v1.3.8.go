@@ -8,7 +8,7 @@
     GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
     Created:   ter 03 fev 2026 13:08:22 -04
-    Updated:   sáb 18 jul 2026 09:40:58 -04
+    Updated:   Sat Jul 18 12:11:24 -04 2026
     Version:   1.3.8
     Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
@@ -182,23 +182,48 @@ func main() {
 		}
 	case "query-generic":
 		runBinary("xbps-query", []string{filter}, targets)
-	default:
-		if len(targets) > 0 {
-			flags = append(flags, "--ignore-file-conflicts")
-			if !runBinary("xbps-install", flags, targets) {
-				suggestions := fetchSuggestions(targets[0])
-				if len(suggestions) > 0 {
-					displayMenu(suggestions, flags)
-				}
-			} else {
-				for _, t := range targets {
-					checkAndEnableService(t)
-				}
-			}
-		} else if len(flags) > 0 {
-			runBinary("xbps-install", flags, []string{})
-		}
+  default:
+	  // Verifica se alguma flag contém 'u' para adicionar --ignore-file-conflicts[cite: 1]
+	  for _, f := range flags {
+	    if strings.Contains(f, "u") {
+	      flags = append(flags, "--ignore-file-conflicts")
+	      break
+	    }
+	  }
+
+	  if len(targets) > 0 {
+	    flags = append(flags, "--ignore-file-conflicts")
+	    if !runBinary("xbps-install", flags, targets) {
+	      suggestions := fetchSuggestions(targets[0])
+	      if len(suggestions) > 0 {
+	        displayMenu(suggestions, flags)
+	      }
+	    } else {
+	      for _, t := range targets {
+	        checkAndEnableService(t)
+	      }
+	    }
+	  } else if len(flags) > 0 {
+	    runBinary("xbps-install", flags, []string{})
+	  }
 	}
+//	default:
+//		if len(targets) > 0 {
+//			flags = append(flags, "--ignore-file-conflicts")
+//			if !runBinary("xbps-install", flags, targets) {
+//				suggestions := fetchSuggestions(targets[0])
+//				if len(suggestions) > 0 {
+//					displayMenu(suggestions, flags)
+//				}
+//			} else {
+//				for _, t := range targets {
+//					checkAndEnableService(t)
+//				}
+//			}
+//		} else if len(flags) > 0 {
+//			runBinary("xbps-install", flags, []string{})
+//		}
+//	}
 }
 
 // --- UTILITÁRIOS ---
