@@ -1,4 +1,6 @@
 /*
+   xbps-query -R -p run_depends -s sdbus-cpp
+
    voidbr-vinstall
    Wrapper para o Void xbps-query e xbps-install
 
@@ -6,7 +8,7 @@
    GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
    Created:   ter 03 fev 2026 13:08:22 -04
-   Updated:   ter 23 jun 2026 19:50:00 -04
+   Updated:   qui 23 jul 2026 21:44:36 -04
    Version:   1.3.10
    Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
@@ -37,21 +39,23 @@ import (
 )
 
 const (
-	Version   = "1.3.10"
+	Version   = "1.3.6"
 	Copyright = "Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>"
-
-	// execTimeout é o tempo máximo concedido a comandos externos (xlocate,
-	// xbps-query -R, etc.) antes de serem abortados, evitando travamentos.
 	execTimeout = 10 * time.Second
 )
 
 var (
-	cyan    = color.New(color.Bold, color.FgCyan).SprintFunc()
-	green   = color.New(color.FgGreen).SprintFunc()
-	white   = color.New(color.Bold, color.FgWhite).SprintFunc()
-	red     = color.New(color.Bold, color.FgRed).SprintFunc()
-	yellow  = color.New(color.Bold, color.FgYellow).SprintFunc()
-	magenta = color.New(color.FgMagenta).SprintFunc()
+	cyan       = color.New(color.Bold, color.FgCyan).SprintFunc()
+	green      = color.New(color.FgGreen).SprintFunc()
+	white      = color.New(color.Bold, color.FgWhite).SprintFunc()
+	red        = color.New(color.Bold, color.FgRed).SprintFunc()
+	yellow     = color.New(color.Bold, color.FgYellow).SprintFunc()
+	blue       = color.New(color.Bold, color.FgBlue).SprintFunc()
+	magenta    = color.New(color.Bold, color.FgMagenta).SprintFunc()
+	black      = color.New(color.Bold, color.FgBlack).SprintFunc()
+	bold       = color.New(color.Bold).SprintFunc()
+	reverse    = color.New(color.ReverseVideo).SprintFunc()
+	green_bold = color.New(color.Bold, color.FgGreen).SprintFunc()
 )
 
 type winsize struct {
@@ -71,8 +75,6 @@ type Package struct {
 	SizeInstalled int64
 }
 
-// --- MAIN ---
-
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -83,6 +85,10 @@ func main() {
 	var targets []string
 	mode := "install"
 	searchRemote := false
+	filter := ""
+
+	fmt.Print("\033[36m")
+	defer fmt.Print("\033[0m")
 
 	for _, arg := range args {
 		switch arg {
@@ -111,15 +117,25 @@ func main() {
 			mode = "query-search"
 		case "-Ss":
 			mode = "remote-search"
+		case "-Sss":
+			mode = "remote-search-detailed"
+		case "-Ssi":
+			mode = "remote-search"
+			filter = "installed"
+		case "-Ssu":
+			mode = "remote-search"
+			filter = "missing"
 		default:
-			if strings.HasPrefix(arg, "-") {
+			if strings.HasPrefix(arg, "-Q") {
+				mode = "query-generic"
+				filter = strings.Replace(arg, "-Q", "-", 1)
+			} else if strings.HasPrefix(arg, "-") {
 				flags = append(flags, arg)
 			} else {
 				targets = append(targets, arg)
 			}
 		}
 	}
-
 	switch mode {
 	case "history":
 		showHistory()
@@ -139,13 +155,34 @@ func main() {
 		}
 	case "remote-search":
 		if len(targets) > 0 {
+			pkgs := fetchSuggestions(targets[0])
+			pkgs = uniquePackagesExact(pkgs)
+			sort.Slice(pkgs, func(i, j int) bool {
+				return pkgs[i].FullName < pkgs[j].FullName
+			})
+			if filter != "" {
+				pkgs = filterPackages(pkgs, filter)
+			}
+			displaySearch(pkgs, "Resultados (Rápido):")
+		}
+	case "remote-search-detailed":
+		if len(targets) > 0 {
 			remoteSearchDetailed(targets[0])
 		}
 	case "remove":
 		if len(targets) > 0 {
 			runBinary("xbps-remove", flags, targets)
 		}
+	case "query-generic":
+		runBinary("xbps-query", []string{filter}, targets)
 	default:
+		for _, f := range flags {
+			if strings.Contains(f, "u") {
+				flags = append(flags, "--ignore-file-conflicts")
+				break
+			}
+		}
+
 		if len(targets) > 0 {
 			flags = append(flags, "--ignore-file-conflicts")
 			if !runBinary("xbps-install", flags, targets) {
@@ -164,7 +201,7 @@ func main() {
 	}
 }
 
-// --- UTILITÁRIOS ---
+// --- UTILITÁRIOS GERAIS ---
 
 func formatBytes(b int64) string {
 	const unit = 1024
@@ -199,18 +236,17 @@ func cleanVersion(fullName string) string {
 	return fullName
 }
 
-// --- CORE: EXECUÇÃO ---
-
 func runBinary(bin string, flags []string, pkgs []string) bool {
+	fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan(bin), yellow(fmt.Sprint(flags)), magenta(fmt.Sprint(pkgs)))
+	fmt.Print("\033[36m")
+	defer fmt.Print("\033[0m")
 	params := []string{bin}
 	params = append(params, flags...)
 	params = append(params, pkgs...)
-
 	cmd := exec.Command("sudo", params...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-
 	err := cmd.Run()
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
@@ -226,58 +262,278 @@ func runBinary(bin string, flags []string, pkgs []string) bool {
 	return true
 }
 
-func searchInLocalPlist(file string) bool {
-	dbPath := "/var/db/xbps"
-	entries, err := os.ReadDir(dbPath)
-	if err != nil {
-		return false
-	}
+// --- FUNÇÕES DE BUSCA DETALHADA E UTILITÁRIOS (INTACTOS) ---
 
-	foundLocal := false
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), "-files.plist") {
-			content, err := os.ReadFile(filepath.Join(dbPath, e.Name()))
+func toInt64(v interface{}) int64 {
+	val := reflect.ValueOf(v)
+	switch val.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return val.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return int64(val.Uint())
+	case reflect.Float32, reflect.Float64:
+		return int64(val.Float())
+	}
+	return 0
+}
+
+func truncate(s string, max int) string {
+	if max < 3 {
+		return ""
+	}
+	if len(s) > max {
+		return s[:max-3] + "..."
+	}
+	return s
+}
+
+func printPackage(w *bufio.Writer, i int, p Package, width int) {
+	idxText := fmt.Sprintf("[%d]", i+1)
+	paddingSize := len(idxText) + 1 + 3 + 1
+	lenPrefix := paddingSize + len(p.FullName) + 2
+	maxDesc := width - lenPrefix
+	descExibida := truncate(p.Description, maxDesc)
+
+	fmt.Fprintf(w, "%s %s %s  %s\n", yellow(idxText), p.Status, white(p.FullName), green(descExibida))
+	fmt.Fprintf(w, "%*s%s | %s (%s / %s)\n", paddingSize, "", cyan(p.Repo), magenta(p.Maintainer), yellow(formatBytes(p.SizeDownload)), magenta(formatBytes(p.SizeInstalled)))
+}
+
+func getInstalledPackages() map[string]bool {
+	installed := make(map[string]bool)
+	out, _ := exec.Command("xbps-query", "-l").Output()
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			installed[fields[1]] = true
+		}
+	}
+	return installed
+}
+
+func getActiveRepos() map[string]string {
+	repoMap := make(map[string]string)
+	out, err := exec.Command("xbps-query", "-L").Output()
+	if err != nil {
+		return repoMap
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			repoMap[strings.NewReplacer(":", "_", "/", "_", ".", "_").Replace(fields[1])] = fields[1]
+		}
+	}
+	return repoMap
+}
+
+func remoteSearchDetailed(query string) {
+	repoMap := getActiveRepos()
+	installed := getInstalledPackages()
+	var pkgs []Package
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	queryLower := strings.ToLower(query)
+	queryClean := strings.ReplaceAll(queryLower, " ", "")
+
+	for dirName, repoURL := range repoMap {
+		repoPath := filepath.Join("/var/db/xbps/", dirName, "x86_64-repodata")
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+			continue
+		}
+
+		wg.Add(1)
+		go func(p, url string) {
+			defer wg.Done()
+			file, err := os.Open(p)
 			if err != nil {
-				continue
+				return
+			}
+			defer file.Close()
+			reader, err := zstd.NewReader(file)
+			if err != nil {
+				return
+			}
+			defer reader.Close()
+			data, err := io.ReadAll(reader)
+			if err != nil || len(data) <= 512 {
+				return
+			}
+			var index map[string]interface{}
+			if err := plist.NewDecoder(bytes.NewReader(data[512:])).Decode(&index); err != nil {
+				return
 			}
 
-			data := string(content)
-			if strings.Contains(data, file) {
-				lines := strings.Split(data, "\n")
-				for _, line := range lines {
-					if strings.Contains(line, "<string>") && strings.Contains(line, file) {
-						pkgName := e.Name()
-						pkgName = strings.TrimPrefix(pkgName, ".")
-						pkgName = strings.TrimSuffix(pkgName, "-files.plist")
-						fmt.Println(green(pkgName + " (instalado localmente via plist)"))
-						foundLocal = true
-						break
+			var local []Package
+			for _, pkgData := range index {
+				pkg, ok := pkgData.(map[string]interface{})
+				if !ok {
+					continue
+				}
+
+				sizeDown := toInt64(pkg["filename-size"])
+				sizeInst := toInt64(pkg["installed_size"])
+
+				fullText := fmt.Sprintf("%v %v %v %d %s %d %s %v",
+					pkg["pkgver"],
+					pkg["short_desc"],
+					pkg["maintainer"],
+					sizeDown,
+					strings.ReplaceAll(formatBytes(sizeDown), " ", ""),
+					sizeInst,
+					strings.ReplaceAll(formatBytes(sizeInst), " ", ""),
+					url,
+				)
+
+				fullTextClean := strings.ToLower(strings.ReplaceAll(fullText, " ", ""))
+
+				if strings.Contains(fullTextClean, queryClean) {
+					pkgVer := fmt.Sprintf("%v", pkg["pkgver"])
+					status := red("[-]")
+					if installed[pkgVer] {
+						status = green("[✔]")
 					}
+					local = append(local, Package{
+						Status:        status,
+						FullName:      pkgVer,
+						Description:   fmt.Sprint(pkg["short_desc"]),
+						Maintainer:    fmt.Sprintf("%v", pkg["maintainer"]),
+						Repo:          url,
+						SizeDownload:  sizeDown,
+						SizeInstalled: sizeInst,
+					})
 				}
 			}
-		}
+
+			if len(local) > 0 {
+				mu.Lock()
+				pkgs = append(pkgs, local...)
+				mu.Unlock()
+			}
+		}(repoPath, repoURL)
 	}
-	return foundLocal
+	wg.Wait()
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].FullName < pkgs[j].FullName })
+
+	if len(pkgs) == 0 {
+		fmt.Println("Nenhum pacote encontrado.")
+	} else {
+		fmt.Printf("\n%s\n", cyan("Resultados encontrados nos repositórios:"))
+		width := getTerminalWidth()
+		fmt.Println(white(strings.Repeat("─", width)))
+		writer := bufio.NewWriter(os.Stdout)
+		for i, p := range pkgs {
+			printPackage(writer, i, p, width)
+		}
+		writer.Flush()
+		fmt.Println(white(strings.Repeat("─", width)))
+	}
 }
 
-func checkXlocateIndex() {
-	home, _ := os.UserHomeDir()
-	indexPath := filepath.Join(home, ".cache/xlocate.git/FETCH_HEAD")
-	info, err := os.Stat(indexPath)
-	if err == nil {
-		if time.Since(info.ModTime()).Hours() > 168 {
-			fmt.Printf("%s %s\n", yellow("[TIP]"), white("Índice xlocate antigo. Considere 'xlocate -S'."))
+// --- FUNÇÕES DE BUSCA RÁPIDA E OUTROS ---
+
+func fetchSuggestions(query string) []Package {
+	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "xbps-query", "-Rs", query)
+	out, _ := cmd.Output()
+	var pkgs []Package
+	for _, line := range strings.Split(string(out), "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		status := line[0:4]
+		rest := strings.TrimSpace(line[4:])
+		name, desc, _ := strings.Cut(rest, " ")
+		if name != "" {
+			pkgs = append(pkgs, Package{Status: strings.TrimSpace(status), FullName: name, Description: strings.TrimSpace(desc)})
+		}
+	}
+	return pkgs
+}
+
+func displaySearch(pkgs []Package, title string) {
+	if len(pkgs) == 0 {
+		return
+	}
+	width := getTerminalWidth()
+	lineSeparator := white(strings.Repeat("─", width))
+	maxNameLen := 0
+	for _, p := range pkgs {
+		if len(p.FullName) > maxNameLen {
+			maxNameLen = len(p.FullName)
+		}
+	}
+	if maxNameLen > 50 {
+		maxNameLen = 50
+	}
+
+	w := bufio.NewWriter(os.Stdout)
+	defer w.Flush()
+
+	if title != "" {
+		fmt.Fprintf(w, "\n%s\n", cyan(title))
+	}
+	fmt.Fprintf(w, "%s\n", lineSeparator)
+	
+	for i, p := range pkgs {
+		idx := yellow(fmt.Sprintf("[%2d]", i+1))
+		statusDisplay := "[-] "
+		statusColor := red(statusDisplay)
+		if strings.Contains(p.Status, "*") {
+			statusDisplay = "[✓] "
+			statusColor = green_bold(statusDisplay)
+		}
+		fmt.Fprintf(w, "%s %s %s  %s\n", idx, statusColor, white(fmt.Sprintf("%-*s", maxNameLen, p.FullName)), green(p.Description))
+	}
+	fmt.Fprintln(w, lineSeparator)
+}
+
+func displayMenu(pkgs []Package, flags []string) {
+	if len(pkgs) == 0 {
+		return
+	}
+	displaySearch(pkgs, "\nSugestões encontradas no repositório:")
+	fmt.Printf("%s", yellow("Selecione o número para instalar ou 'q' para sair: "))
+	reader := bufio.NewReader(os.Stdin)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input == "q" || input == "" {
+		return
+	}
+	choice, _ := strconv.Atoi(input)
+	if choice > 0 && choice <= len(pkgs) {
+		name := cleanVersion(pkgs[choice-1].FullName)
+		if runBinary("xbps-install", flags, []string{name}) {
+			checkAndEnableService(name)
 		}
 	}
 }
 
-// findProvides busca, em paralelo, qual pacote fornece um determinado arquivo.
-// As fontes (plist local, xbps-query -o, xlocate, busca remota) são
-// independentes entre si, então rodam concorrentemente em vez de em série,
-// reduzindo a latência total (principalmente quando -FR aciona rede).
-// Os cabeçalhos ">>>" são impressos antes de disparar as goroutines para
-// manter a ordem de exibição determinística; os resultados são coletados
-// e impressos após todas as buscas terminarem.
+func uniquePackagesExact(pkgs []Package) []Package {
+	keys := make(map[string]bool)
+	var list []Package
+	for _, p := range pkgs {
+		if !keys[p.FullName] {
+			keys[p.FullName] = true
+			list = append(list, p)
+		}
+	}
+	return list
+}
+
+func filterPackages(pkgs []Package, mode string) []Package {
+	var filtered []Package
+	for _, p := range pkgs {
+		isInstalled := strings.Contains(p.Status, "*")
+		if (mode == "installed" && isInstalled) || (mode == "missing" && !isInstalled) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
+}
+
+// --- FUNÇÕES DE SISTEMA, LIMPEZA E FIND ---
+
 func findProvides(file string, searchRemote bool) {
 	fmt.Printf("%s %s '%s'...\n", cyan("[vinstall]"), white("Procurando pacote que contém:"), yellow(file))
 
@@ -507,243 +763,45 @@ func showHistory() {
 	fmt.Println(white(strings.Repeat("─", width)))
 }
 
-// --- BUSCA DETALHADA E OTIMIZADA ---
-
-func toInt64(v interface{}) int64 {
-	val := reflect.ValueOf(v)
-	switch val.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return val.Int()
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return int64(val.Uint())
-	case reflect.Float32, reflect.Float64:
-		return int64(val.Float())
-	}
-	return 0
-}
-
-func truncate(s string, max int) string {
-	if max < 3 {
-		return ""
-	}
-	if len(s) > max {
-		return s[:max-3] + "..."
-	}
-	return s
-}
-
-func printPackage(w *bufio.Writer, i int, p Package, width int) {
-	idxText := fmt.Sprintf("[%d]", i+1)
-	paddingSize := len(idxText) + 1 + 3 + 1
-	lenPrefix := paddingSize + len(p.FullName) + 2
-	maxDesc := width - lenPrefix
-	descExibida := truncate(p.Description, maxDesc)
-
-	fmt.Fprintf(w, "%s %s %s  %s\n", yellow(idxText), p.Status, white(p.FullName), green(descExibida))
-	fmt.Fprintf(w, "%*s%s | %s (%s / %s)\n", paddingSize, "", cyan(p.Repo), magenta(p.Maintainer), yellow(formatBytes(p.SizeDownload)), magenta(formatBytes(p.SizeInstalled)))
-}
-
-func getInstalledPackages() map[string]bool {
-	installed := make(map[string]bool)
-	out, _ := exec.Command("xbps-query", "-l").Output()
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			installed[fields[1]] = true
-		}
-	}
-	return installed
-}
-
-func getActiveRepos() map[string]string {
-	repoMap := make(map[string]string)
-	out, err := exec.Command("xbps-query", "-L").Output()
+func searchInLocalPlist(file string) bool {
+	dbPath := "/var/db/xbps"
+	entries, err := os.ReadDir(dbPath)
 	if err != nil {
-		return repoMap
+		return false
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			repoMap[strings.NewReplacer(":", "_", "/", "_", ".", "_").Replace(fields[1])] = fields[1]
-		}
-	}
-	return repoMap
-}
-
-func remoteSearchDetailed(query string) {
-	repoMap := getActiveRepos()
-	installed := getInstalledPackages()
-	var pkgs []Package
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	queryLower := strings.ToLower(query)
-	queryClean := strings.ReplaceAll(queryLower, " ", "")
-
-	for dirName, repoURL := range repoMap {
-		repoPath := filepath.Join("/var/db/xbps/", dirName, "x86_64-repodata")
-		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-			continue
-		}
-
-		wg.Add(1)
-		go func(p, url string) {
-			defer wg.Done()
-			file, err := os.Open(p)
+	foundLocal := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), "-files.plist") {
+			content, err := os.ReadFile(filepath.Join(dbPath, e.Name()))
 			if err != nil {
-				return
+				continue
 			}
-			defer file.Close()
-			reader, err := zstd.NewReader(file)
-			if err != nil {
-				return
-			}
-			defer reader.Close()
-			data, err := io.ReadAll(reader)
-			if err != nil || len(data) <= 512 {
-				return
-			}
-			var index map[string]interface{}
-			if err := plist.NewDecoder(bytes.NewReader(data[512:])).Decode(&index); err != nil {
-				return
-			}
-
-			// Acumula os resultados deste repositório localmente e só toca
-			// o mutex compartilhado uma vez, ao final, em vez de a cada match.
-			var local []Package
-			for _, pkgData := range index {
-				pkg, ok := pkgData.(map[string]interface{})
-				if !ok {
-					continue
-				}
-
-				sizeDown := toInt64(pkg["filename-size"])
-				sizeInst := toInt64(pkg["installed_size"])
-
-				// Monta a string de busca normalizada
-				fullText := fmt.Sprintf("%v %v %v %d %s %d %s %v",
-					pkg["pkgver"],
-					pkg["short_desc"],
-					pkg["maintainer"],
-					sizeDown,
-					strings.ReplaceAll(formatBytes(sizeDown), " ", ""),
-					sizeInst,
-					strings.ReplaceAll(formatBytes(sizeInst), " ", ""),
-					url,
-				)
-
-				fullTextClean := strings.ToLower(strings.ReplaceAll(fullText, " ", ""))
-
-				if strings.Contains(fullTextClean, queryClean) {
-					pkgVer := fmt.Sprintf("%v", pkg["pkgver"])
-					status := red("[-]")
-					if installed[pkgVer] {
-						status = green("[✔]")
+			data := string(content)
+			if strings.Contains(data, file) {
+				lines := strings.Split(data, "\n")
+				for _, line := range lines {
+					if strings.Contains(line, "<string>") && strings.Contains(line, file) {
+						pkgName := e.Name()
+						pkgName = strings.TrimPrefix(pkgName, ".")
+						pkgName = strings.TrimSuffix(pkgName, "-files.plist")
+						fmt.Println(green(pkgName + " (instalado localmente via plist)"))
+						foundLocal = true
+						break
 					}
-					local = append(local, Package{
-						Status:        status,
-						FullName:      pkgVer,
-						Description:   fmt.Sprint(pkg["short_desc"]),
-						Maintainer:    fmt.Sprintf("%v", pkg["maintainer"]),
-						Repo:          url,
-						SizeDownload:  sizeDown,
-						SizeInstalled: sizeInst,
-					})
 				}
 			}
-
-			if len(local) > 0 {
-				mu.Lock()
-				pkgs = append(pkgs, local...)
-				mu.Unlock()
-			}
-		}(repoPath, repoURL)
-	}
-	wg.Wait()
-	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].FullName < pkgs[j].FullName })
-
-	if len(pkgs) == 0 {
-		fmt.Println("Nenhum pacote encontrado.")
-	} else {
-		fmt.Printf("\n%s\n", cyan("Resultados encontrados nos repositórios:"))
-		width := getTerminalWidth()
-		fmt.Println(white(strings.Repeat("─", width)))
-		writer := bufio.NewWriter(os.Stdout)
-		for i, p := range pkgs {
-			printPackage(writer, i, p, width)
 		}
-		writer.Flush()
-		fmt.Println(white(strings.Repeat("─", width)))
 	}
+	return foundLocal
 }
 
-// --- BUSCAS ORIGINAIS ---
-
-func fetchSuggestions(query string) []Package {
-	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "xbps-query", "-Rs", query)
-	out, _ := cmd.Output()
-	var pkgs []Package
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) >= 2 {
-			desc := ""
-			if len(f) > 2 {
-				desc = strings.Join(f[2:], " ")
-			}
-			pkgs = append(pkgs, Package{Status: f[0], FullName: f[1], Description: desc})
-		}
-	}
-	return pkgs
-}
-
-func displaySearch(pkgs []Package, title string) {
-	if len(pkgs) == 0 {
-		return
-	}
-	width := getTerminalWidth()
-	lineSeparator := white(strings.Repeat("─", width))
-
-	maxNameLen := 0
-	for _, p := range pkgs {
-		if len(p.FullName) > maxNameLen {
-			maxNameLen = len(p.FullName)
-		}
-	}
-	if maxNameLen > 50 {
-		maxNameLen = 50
-	}
-
-	fmt.Printf("%s\n%s\n", cyan(title), lineSeparator)
-	for i, p := range pkgs {
-		idx := yellow(fmt.Sprintf("[%2d]", i+1))
-		statusColor := red(p.Status)
-		if p.Status == "[✔]" {
-			statusColor = green(p.Status)
-		}
-		fmt.Printf("%s %s %s  %s\n", idx, statusColor, white(fmt.Sprintf("%-*s", maxNameLen, p.FullName)), green(p.Description))
-	}
-	fmt.Println(lineSeparator)
-}
-
-func displayMenu(pkgs []Package, flags []string) {
-	if len(pkgs) == 0 {
-		return
-	}
-	displaySearch(pkgs, "\nSugestões encontradas no repositório:")
-	fmt.Printf("%s", yellow("Selecione o número para instalar ou 'q' para sair: "))
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	input = strings.TrimSpace(input)
-	if input == "q" || input == "" {
-		return
-	}
-	choice, _ := strconv.Atoi(input)
-	if choice > 0 && choice <= len(pkgs) {
-		name := cleanVersion(pkgs[choice-1].FullName)
-		if runBinary("xbps-install", flags, []string{name}) {
-			checkAndEnableService(name)
+func checkXlocateIndex() {
+	home, _ := os.UserHomeDir()
+	indexPath := filepath.Join(home, ".cache/xlocate.git/FETCH_HEAD")
+	info, err := os.Stat(indexPath)
+	if err == nil {
+		if time.Since(info.ModTime()).Hours() > 168 {
+			fmt.Printf("%s %s\n", yellow("[TIP]"), white("Índice xlocate antigo. Considere 'xlocate -S'."))
 		}
 	}
 }
@@ -762,8 +820,10 @@ func printUsage() {
 	fmt.Println("\nAtalhos de Consulta:")
 	fmt.Printf("  %-20s %s\n", green("-Li"), white("Lista todos os pacotes instalados"))
 	fmt.Printf("  %-20s %s\n", green("-Lo"), white("Lista apenas pacotes órfãos"))
-	fmt.Printf("  %-20s %s\n", green("-Qs <query>"), white("Busca termo nos pacotes instalados"))
-	fmt.Printf("  %-20s %s\n", green("-Ss <query>"), white("Busca termo nos repositórios remotos (Full Text Search)"))
+	fmt.Printf("  %-20s %s\n", green("-Ss <query>"), white("Busca termo nos repositórios (Rápido)"))
+	fmt.Printf("  %-20s %s\n", green("-Sss <query>"), white("Busca detalhada nos repositórios (Full Text)"))
+	fmt.Printf("  %-20s %s\n", green("-Ssi <query>"), white("Busca termo nos pacotes instalados"))
+	fmt.Printf("  %-20s %s\n", green("-Ssu <query>"), white("Busca termo nos pacotes NÃO instalados"))
 	fmt.Println("\nManutenção:")
 	fmt.Printf("  %-20s %s\n", green("-Scc"), white("Limpa cache e órfãos"))
 	fmt.Printf("  %-20s %s\n", green("--history"), white("Mostra histórico de transações"))
