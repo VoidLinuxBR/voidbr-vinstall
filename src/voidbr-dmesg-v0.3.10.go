@@ -25,6 +25,7 @@ import (
     "sync"
     "syscall"
     "time"
+    "unsafe"
 )
 
 const (
@@ -34,6 +35,7 @@ const (
     Dim    = "\033[2m"
     Italic = "\033[3m"
     Under  = "\033[4m"
+    Rev    = "\033[7m"
 
     // Cores Padrão
     Black   = "\033[30m"
@@ -56,46 +58,150 @@ const (
 )
 
 var (
-    dynamicQuery string
-    queryMu      sync.RWMutex
-    logChan      = make(chan string, 100)
-    paused       bool
-    pauseMu      sync.RWMutex
+    dynamicQuery      string
+    dynamicQueryLower string
+    queryMu           sync.RWMutex
+    logChan           = make(chan string, 100)
+    paused            bool
+    pauseMu           sync.RWMutex
+    printMu           sync.Mutex
+
+    termRows int
+    termCols int
+    termMu   sync.RWMutex
 )
+
+type winsize struct {
+    Row    uint16
+    Col    uint16
+    Xpixel uint16
+    Ypixel uint16
+}
+
+// getTerminalSize consulta o kernel pelo tamanho atual do terminal.
+// Se falhar (ex.: saída redirecionada para um arquivo), assume 24x80.
+func getTerminalSize() (rows, cols int) {
+    ws := &winsize{}
+    retCode, _, _ := syscall.Syscall(syscall.SYS_IOCTL,
+        uintptr(syscall.Stdin),
+        uintptr(syscall.TIOCGWINSZ),
+        uintptr(unsafe.Pointer(ws)))
+    if int(retCode) == -1 || ws.Row == 0 {
+        return 24, 80
+    }
+    return int(ws.Row), int(ws.Col)
+}
+
+// setupTerminal reserva a última linha da tela para a barra de status,
+// fazendo com que a rolagem normal do terminal pare uma linha antes do fim.
+func setupTerminal() {
+    rows, cols := getTerminalSize()
+    termMu.Lock()
+    termRows, termCols = rows, cols
+    termMu.Unlock()
+
+    printMu.Lock()
+    fmt.Printf("\033[1;%dr", rows-1) // define a região de rolagem (DECSTBM)
+    fmt.Printf("\033[%d;1H", rows-1) // posiciona o cursor dentro da região
+    printMu.Unlock()
+}
+
+// restoreTerminal remove a região de rolagem customizada e limpa a barra
+// de status antes do programa encerrar, devolvendo o terminal ao normal.
+func restoreTerminal() {
+    termMu.RLock()
+    rows := termRows
+    termMu.RUnlock()
+
+    printMu.Lock()
+    fmt.Print("\033[r")                    // remove a região de rolagem
+    fmt.Printf("\033[%d;1H\033[K\n", rows) // limpa a última linha
+    printMu.Unlock()
+}
 
 func elevateToRoot() {
     if os.Geteuid() == 0 { return }
     args := append([]string{os.Args[0]}, os.Args[1:]...)
     cmd := exec.Command("sudo", args...)
     cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-    cmd.Run()
+    err := cmd.Run()
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "%sFalha ao elevar privilégios via sudo: %v%s\n", Red, err, Reset)
+        os.Exit(1)
+    }
     os.Exit(0)
 }
 
-func colorize(line, query string) string {
+// colorize destaca a ocorrência da query dentro da linha.
+// lowerLine e lowerQuery já vêm pré-calculados pelo chamador para evitar
+// refazer strings.ToLower() em cima da mesma linha/query repetidamente.
+func colorize(line, lowerLine, query, lowerQuery string) string {
     if query == "" { return line }
-    lowerLine := strings.ToLower(line)
-    lowerQuery := strings.ToLower(query)
     idx := strings.Index(lowerLine, lowerQuery)
     if idx == -1 { return line }
     foundText := line[idx : idx+len(query)]
     return line[:idx] + Bold + Yellow + foundText + Reset + line[idx+len(query):]
 }
 
+// printStatus redesenha a barra de status fixa na última linha do
+// terminal, em vídeo reverso (estilo vim/nano), sem afetar a posição
+// do cursor onde o conteúdo de log está sendo impresso.
 func printStatus(buffer string) {
-    if paused {
-        fmt.Printf("\r\033[K%s[PAUSADO - Pressione ESPAÇO para retomar]%s", Red, Reset)
+    pauseMu.RLock()
+    isPaused := paused
+    pauseMu.RUnlock()
+
+    termMu.RLock()
+    row, cols := termRows, termCols
+    termMu.RUnlock()
+
+    var msg string
+    if isPaused {
+        msg = " [PAUSADO - Pressione ESPAÇO para retomar]"
     } else {
-        fmt.Printf("\r\033[K%s[SP:Pausar%s|FILTRO:%s] %s%s", Bold + Black, BYellow, dynamicQuery, buffer, Reset)
+        queryMu.RLock()
+        q := dynamicQuery
+        queryMu.RUnlock()
+        msg = fmt.Sprintf(" [SP:Pausar|FILTRO:%s] %s", q, buffer)
     }
+
+    // preenche/trunca até a largura do terminal, para o reverso cobrir a linha toda
+    if len(msg) < cols {
+        msg += strings.Repeat(" ", cols-len(msg))
+    } else if len(msg) > cols {
+        msg = msg[:cols]
+    }
+
+    printMu.Lock()
+    defer printMu.Unlock()
+    fmt.Print("\0337")            // salva posição do cursor (DECSC)
+    fmt.Printf("\033[%d;1H", row) // move para a última linha
+    fmt.Print(Rev + msg + Reset)  // desenha em vídeo reverso
+    fmt.Print("\0338")            // restaura posição do cursor (DECRC)
 }
 
 func main() {
-    if len(os.Args) > 1 { dynamicQuery = strings.Join(os.Args[1:], " ") }
+    if len(os.Args) > 1 {
+        dynamicQuery = strings.Join(os.Args[1:], " ")
+        dynamicQueryLower = strings.ToLower(dynamicQuery)
+    }
     elevateToRoot()
 
     exec.Command("stty", "-F", "/dev/tty", "cbreak", "-echo").Run()
     defer exec.Command("stty", "-F", "/dev/tty", "echo", "-cbreak").Run()
+
+    setupTerminal()
+    defer restoreTerminal()
+
+    // Redesenha a região de rolagem e a barra quando o terminal é redimensionado.
+    winch := make(chan os.Signal, 1)
+    signal.Notify(winch, syscall.SIGWINCH)
+    go func() {
+        for range winch {
+            setupTerminal()
+            printStatus("")
+        }
+    }()
 
     go func() {
         for msg := range logChan {
@@ -103,13 +209,17 @@ func main() {
             isPaused := paused
             pauseMu.RUnlock()
             if !isPaused {
+                printMu.Lock()
                 fmt.Printf("%s\n", msg)
+                printMu.Unlock()
                 printStatus("")
             }
         }
     }()
 
+    printMu.Lock()
     fmt.Println("--- Monitor Iniciado (Carregando histórico...) ---")
+    printMu.Unlock()
     printStatus("")
 
     go func() {
@@ -125,6 +235,7 @@ func main() {
             } else if char == 10 || char == 13 {
                 queryMu.Lock()
                 dynamicQuery = strings.TrimSpace(buffer)
+                dynamicQueryLower = strings.ToLower(dynamicQuery)
                 buffer = ""
                 queryMu.Unlock()
                 printStatus(buffer)
@@ -144,7 +255,9 @@ func main() {
             isLogFile := strings.HasSuffix(name, ".log") || name == "current"
             isExcluded := strings.Contains(name, "btmp") || strings.Contains(name, "wtmp") || strings.Contains(name, "lastlog")
             if isLogFile && !isExcluded {
-              fmt.Printf("Monitorando: %s\n", path)
+                printMu.Lock()
+                fmt.Printf("Monitorando: %s\n", path)
+                printMu.Unlock()
                 go func(p string) {
                     file, err := os.Open(p)
                     if err != nil { return }
@@ -164,14 +277,16 @@ func main() {
                         }
                         
                         cleanLine := strings.TrimSpace(line)
-                        queryMu.RLock()
-                        q := strings.ToLower(dynamicQuery)
                         loweredLine := strings.ToLower(cleanLine)
+
+                        queryMu.RLock()
+                        q := dynamicQuery
+                        qLower := dynamicQueryLower
                         queryMu.RUnlock()
 
                         // Aplica o filtro apenas se houver query, caso contrário imprime tudo
-                        if q == "" || strings.Contains(loweredLine, q) {
-                            logChan <- colorize(cleanLine, dynamicQuery)
+                        if qLower == "" || strings.Contains(loweredLine, qLower) {
+                            logChan <- colorize(cleanLine, loweredLine, q, qLower)
                         }
                     }
                 }(path)

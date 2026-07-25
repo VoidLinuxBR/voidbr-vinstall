@@ -8,8 +8,8 @@
    GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
    Created:   ter 03 fev 2026 13:08:22 -04
-   Updated:   qui 23 jul 2026 21:44:36 -04
-   Version:   1.3.12
+   Updated:   sex 24 jul 2026 00:00:00 -04
+   Version:   1.6.0
    Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
 
@@ -40,7 +40,7 @@ import (
 )
 
 const (
-	Version     = "1.3.12"
+	Version     = "1.6.0"
 	Copyright   = "Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>"
 	execTimeout = 10 * time.Second
 )
@@ -87,6 +87,7 @@ func main() {
 	mode := "install"
 	searchRemote := false
 	filter := ""
+	syncFlavor := "" // "sy" | "syy" | "sf" — só vira modo "sync" se não houver targets
 
 	fmt.Print("\033[36m")
 	defer fmt.Print("\033[0m")
@@ -101,6 +102,15 @@ func main() {
 			return
 		case "--history":
 			mode = "history"
+		case "-Sy":
+			syncFlavor = "sy"
+			flags = append(flags, arg)
+		case "-Syy":
+			syncFlavor = "syy"
+			flags = append(flags, arg)
+		case "-Sf":
+			syncFlavor = "sf"
+			flags = append(flags, arg)
 		case "-Scc":
 			mode = "clean"
 		case "-X", "-x":
@@ -137,9 +147,20 @@ func main() {
 			}
 		}
 	}
+
+	// -Sy/-Syy/-Sf só disparam o modo "sync" do vinstall quando usadas
+	// sozinhas (sem pacotes-alvo). Se vierem acompanhadas de um pacote
+	// (ex.: "vinstall -Sy firefox"), a flag já está em `flags` e segue o
+	// fluxo normal de instalação, igual usar o xbps-install nativo.
+	if syncFlavor != "" && len(targets) == 0 {
+		mode = "sync"
+	}
+
 	switch mode {
 	case "history":
 		showHistory()
+	case "sync":
+		syncAndCheckUpdates(syncFlavor)
 	case "clean":
 		cleanXbpsCache()
 	case "find":
@@ -326,6 +347,58 @@ func getInstalledPackages() map[string]bool {
 	return installed
 }
 
+// getInstalledPkgverByName retorna um mapa nome-do-pacote -> pkgver completo
+// instalado (ex.: "firefox" -> "firefox-128.0_1"). Usado para comparar com a
+// versão disponível no repositório e detectar atualizações.
+func getInstalledPkgverByName() map[string]string {
+	result := make(map[string]string)
+	out, err := exec.Command("xbps-query", "-l").Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s %s: %v\n", yellow("[!]"), white("falha ao listar pacotes instalados (xbps-query -l)"), err)
+		return result
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			pkgver := fields[1]
+			name := cleanVersion(pkgver)
+			result[name] = pkgver
+		}
+	}
+	return result
+}
+
+// isNewerVersion usa o comparador oficial do xbps (xbps-uhelper cmpver) para
+// confirmar que reqVer é de fato mais recente que instVer, em vez de apenas
+// "diferente". Isso evita listar como "atualização disponível" um pacote
+// cujo repositório está desatualizado em relação ao que já está instalado
+// (o que seria um downgrade, não um upgrade).
+//
+// Exit status do xbps-uhelper cmpver: 255 = instver < reqver,
+// 0 = instver == reqver, 1 = instver > reqver.
+func isNewerVersion(instVer, reqVer string) bool {
+	cmd := exec.Command("xbps-uhelper", "cmpver", instVer, reqVer)
+	err := cmd.Run()
+	if err == nil {
+		return false // exit 0: versões iguais
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode() == 255
+	}
+	fmt.Fprintf(os.Stderr, "%s %s: %v\n", yellow("[!]"), white("falha ao comparar versões via xbps-uhelper"), err)
+	return false // não conseguiu confirmar; por segurança, não lista como upgrade
+}
+
+// extractVersion retorna a parte de versão/revisão de um pkgver
+// (ex.: "firefox-128.0_1" -> "128.0_1"). Complementa cleanVersion, que
+// retorna a outra metade (o nome do pacote).
+func extractVersion(pkgver string) string {
+	if i := strings.LastIndex(pkgver, "-"); i != -1 {
+		return pkgver[i+1:]
+	}
+	return pkgver
+}
+
 func getActiveRepos() map[string]string {
 	repoMap := make(map[string]string)
 	out, err := exec.Command("xbps-query", "-L").Output()
@@ -486,6 +559,207 @@ func readRepodataPlist(path string) ([]byte, error) {
 			return io.ReadAll(tr)
 		}
 	}
+}
+
+// syncAndCheckUpdates sincroniza os índices dos repositórios e lista o que
+// mudaria, sem instalar nada. O comportamento varia pelo flavor:
+//
+//	"sy":  sync normal + só lista atualizações reais (repo mais novo)
+//	"syy": sync FORÇADO (ignora cache em disco, --force) + só atualizações reais
+//	"sf":  sync FORÇADO + lista TODAS as diferenças de versão, incluindo
+//	       downgrades (repo com versão menor que a instalada)
+func syncAndCheckUpdates(flavor string) {
+	forceSync := flavor == "syy" || flavor == "sf"
+	showDowngrades := flavor == "sf"
+
+	fmt.Printf("%s %s\n", cyan("[vinstall]"), white("Sincronizando índices dos repositórios..."))
+	syncFlags := []string{"-S"}
+	if forceSync {
+		syncFlags = append(syncFlags, "--force")
+	}
+	if !runBinary("xbps-install", syncFlags, []string{}) {
+		fmt.Printf("%s %s\n", red("[!]"), white("Falha ao sincronizar índices."))
+		return
+	}
+	fmt.Println()
+
+	repoMap := getActiveRepos()
+	installed := getInstalledPkgverByName()
+	arch := repodataArch()
+
+	var updates []Package
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for dirName, repoURL := range repoMap {
+		repoPath := filepath.Join("/var/db/xbps/", dirName, arch+"-repodata")
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+			repoPath = filepath.Join("/var/db/xbps/", dirName, "x86_64-repodata")
+			if _, err2 := os.Stat(repoPath); os.IsNotExist(err2) {
+				continue
+			}
+		}
+
+		wg.Add(1)
+		go func(p, url string) {
+			defer wg.Done()
+			data, err := readRepodataPlist(p)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s %s (%s): %v\n", yellow("[!]"), white("falha ao ler repodata"), url, err)
+				return
+			}
+			var index map[string]interface{}
+			if err := plist.NewDecoder(bytes.NewReader(data)).Decode(&index); err != nil {
+				fmt.Fprintf(os.Stderr, "%s %s (%s): %v\n", yellow("[!]"), white("falha ao decodificar plist"), url, err)
+				return
+			}
+
+			var local []Package
+			for _, pkgData := range index {
+				pkg, ok := pkgData.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				pkgVerStr := fmt.Sprintf("%v", pkg["pkgver"])
+				name := cleanVersion(pkgVerStr)
+
+				installedVer, isInstalled := installed[name]
+				if !isInstalled || installedVer == pkgVerStr {
+					continue // não instalado, ou já na versão mais recente
+				}
+
+				isUpgrade := isNewerVersion(installedVer, pkgVerStr)
+				if !isUpgrade && !showDowngrades {
+					// O repositório tem uma versão diferente, mas não mais
+					// nova que a instalada (mirror desatualizado, por
+					// exemplo). Só é exibido no modo -Sf.
+					continue
+				}
+
+				status := "upgrade"
+				if !isUpgrade {
+					status = "downgrade"
+				}
+
+				local = append(local, Package{
+					Status:        status,
+					FullName:      pkgVerStr,
+					Description:   installedVer, // reaproveita o campo p/ guardar a versão instalada
+					Maintainer:    fmt.Sprintf("%v", pkg["maintainer"]),
+					Repo:          url,
+					SizeDownload:  toInt64(pkg["filename-size"]),
+					SizeInstalled: toInt64(pkg["installed_size"]),
+				})
+			}
+
+			if len(local) > 0 {
+				mu.Lock()
+				updates = append(updates, local...)
+				mu.Unlock()
+			}
+		}(repoPath, repoURL)
+	}
+	wg.Wait()
+
+	if len(updates) == 0 {
+		fmt.Printf("%s %s\n", green("[✔]"), white("Sistema já está atualizado."))
+		return
+	}
+
+	// Pacotes disponíveis em mais de um repositório (ex.: repo principal +
+	// multilib) geram entradas duplicadas com o mesmo pkgver de destino.
+	// FullName já identifica pacote+versão de forma única, então dedup por
+	// esse campo remove as repetições sem afetar atualizações distintas.
+	updates = uniquePackagesExact(updates)
+
+	sort.Slice(updates, func(i, j int) bool { return updates[i].FullName < updates[j].FullName })
+
+	upgradeCount, downgradeCount := 0, 0
+	for _, p := range updates {
+		if p.Status == "downgrade" {
+			downgradeCount++
+		} else {
+			upgradeCount++
+		}
+	}
+
+	width := getTerminalWidth()
+	if showDowngrades && downgradeCount > 0 {
+		fmt.Printf("%s (%s %s, %s %s):\n", cyan("Pacotes com diferença de versão"),
+			yellow(strconv.Itoa(upgradeCount)), green("atualizações"),
+			yellow(strconv.Itoa(downgradeCount)), red("downgrades"))
+	} else {
+		fmt.Printf("%s (%s):\n", cyan("Pacotes com atualização disponível"), yellow(strconv.Itoa(len(updates))))
+	}
+	fmt.Println(white(strings.Repeat("─", width)))
+
+	// Mesma técnica usada em displaySearch (-Ss): medir a largura de cada
+	// coluna a partir do texto PURO (sem códigos ANSI de cor) e só depois
+	// aplicar a cor sobre o texto já paddado. Colorir antes de medir faz o
+	// %-*s contar os bytes de escape como parte do comprimento visível,
+	// quebrando o alinhamento.
+	type updateRow struct {
+		name, oldVer, newVer, size, repo string
+		isUpgrade                        bool
+		download                         int64
+	}
+	rows := make([]updateRow, 0, len(updates))
+	maxNameLen, maxOldLen, maxNewLen, maxSizeLen := 0, 0, 0, 0
+	for _, p := range updates {
+		r := updateRow{
+			name:      cleanVersion(p.FullName),
+			oldVer:    extractVersion(p.Description),
+			newVer:    extractVersion(p.FullName),
+			size:      formatBytes(p.SizeDownload),
+			repo:      p.Repo,
+			isUpgrade: p.Status != "downgrade",
+			download:  p.SizeDownload,
+		}
+		if len(r.name) > maxNameLen {
+			maxNameLen = len(r.name)
+		}
+		if len(r.oldVer) > maxOldLen {
+			maxOldLen = len(r.oldVer)
+		}
+		if len(r.newVer) > maxNewLen {
+			maxNewLen = len(r.newVer)
+		}
+		if len(r.size) > maxSizeLen {
+			maxSizeLen = len(r.size)
+		}
+		rows = append(rows, r)
+	}
+	if maxNameLen > 40 {
+		maxNameLen = 40
+	}
+
+	w := bufio.NewWriter(os.Stdout)
+	var totalDownload int64
+	for i, r := range rows {
+		idx := yellow(fmt.Sprintf("[%2d]", i+1))
+		namePadded := fmt.Sprintf("%-*s", maxNameLen, r.name)
+		oldPadded := fmt.Sprintf("%*s", maxOldLen, r.oldVer)  // alinhado à direita
+		newPadded := fmt.Sprintf("%-*s", maxNewLen, r.newVer) // alinhado à esquerda
+		sizePadded := fmt.Sprintf("%*s", maxSizeLen, r.size)  // alinhado à direita
+		repoShown := truncate(r.repo, 45)
+
+		newColored := green(newPadded)
+		tag := ""
+		if !r.isUpgrade {
+			newColored = red(newPadded)
+			tag = "  " + red("[DOWNGRADE]")
+		}
+		fmt.Fprintf(w, "%s %s %s → %s  (%s)  %s%s\n", idx, white(namePadded), yellow(oldPadded), newColored, magenta(sizePadded), cyan(repoShown), tag)
+		totalDownload += r.download
+	}
+	w.Flush()
+
+	fmt.Println(white(strings.Repeat("─", width)))
+	fmt.Printf("%s %s\n\n", white("Total a baixar:"), cyan(formatBytes(totalDownload)))
+	if downgradeCount > 0 {
+		fmt.Printf("%s %s\n", yellow("[!]"), white("Itens marcados como [DOWNGRADE] não serão instalados por 'vinstall -Syu' (repositório desatualizado em relação ao instalado)."))
+	}
+	fmt.Printf("%s %s\n", yellow("[!]"), white("Rode 'vinstall -Syu' para aplicar as atualizações."))
 }
 
 // --- FUNÇÕES DE BUSCA RÁPIDA E OUTROS ---
@@ -887,8 +1161,92 @@ func printUsage() {
 	fmt.Printf("  %-20s %s\n", green("-Sss <query>"), white("Busca detalhada nos repositórios (Full Text)"))
 	fmt.Printf("  %-20s %s\n", green("-Ssi <query>"), white("Busca termo nos pacotes instalados"))
 	fmt.Printf("  %-20s %s\n", green("-Ssu <query>"), white("Busca termo nos pacotes NÃO instalados"))
+	fmt.Printf("  %-20s %s\n", green("-Sy"), white("Sincroniza índices e lista atualizações disponíveis"))
+	fmt.Printf("  %-20s %s\n", green("-Syy"), white("Igual ao -Sy, mas força resync ignorando cache local"))
+	fmt.Printf("  %-20s %s\n", green("-Sf"), white("Igual ao -Syy, mas mostra TODAS as diferenças (inclui downgrades)"))
 	fmt.Println("\nManutenção:")
 	fmt.Printf("  %-20s %s\n", green("-Scc"), white("Limpa cache e órfãos"))
 	fmt.Printf("  %-20s %s\n", green("--history"), white("Mostra histórico de transações"))
 	fmt.Println()
 }
+
+/*
+   CHANGELOG
+
+   [1.6.0] - 2026-07-24
+   Changed:
+     - -Sy, -Syy e -Sf agora têm comportamentos distintos e reais:
+         -Sy:  sync normal + só lista atualizações reais (repo mais novo)
+         -Syy: sync FORÇADO (--force, ignora cache local do repodata,
+               espelhando o "-Syy" do pacman) + mesma listagem do -Sy
+         -Sf:  sync FORÇADO + lista TODAS as diferenças de versão,
+               incluindo downgrades (repo com versão menor que a
+               instalada), marcados com [DOWNGRADE] em vermelho e
+               excluídos do resumo de "total a baixar" recomendado
+     - As três flags só ativam o modo sync do vinstall quando usadas SEM
+       pacotes-alvo (ex.: "vinstall -Sy"). Se vier acompanhada de um
+       pacote (ex.: "vinstall -Sy firefox"), segue o fluxo normal de
+       instalação, repassando a flag como passthrough real para o
+       xbps-install (sync + instala o pacote).
+
+   [1.5.0] - 2026-07-24
+   Added:
+     - Coluna de repositório na listagem do -Sy, mostrando de qual repo
+       vem cada atualização (mesma ideia do -Sss). Reaproveita o campo
+       Package.Repo, que já existia mas não era exibido nesse modo.
+     - -Syy agora funciona como alias de -Sy (mesmo comportamento).
+
+   [1.4.3] - 2026-07-24
+   Fixed:
+     - -Sy listava pacotes como "atualização disponível" mesmo quando o
+       repositório tinha uma versão MAIS ANTIGA que a instalada (mirror
+       desatualizado), o que aparecia como um downgrade disfarçado de
+       upgrade. Agora usa xbps-uhelper cmpver (comparador oficial de
+       versões do XBPS) para só listar pacotes onde a versão do repo é
+       de fato mais nova que a instalada.
+
+   [1.4.2] - 2026-07-24
+   Fixed:
+     - Alinhamento do -Sy estendido para todas as colunas (nome, versão
+       antiga, versão nova, tamanho), não só o nome. A largura de cada
+       coluna agora é medida sobre o texto puro (sem cor) e o padding é
+       aplicado antes de colorir — mesma técnica de displaySearch (-Ss).
+       Versões são alinhadas à direita, nome e versão nova à esquerda.
+
+   [1.4.1] - 2026-07-24
+   Fixed:
+     - Corrigido desalinhamento na listagem do -Sy: o padding (%-*s) estava
+       sendo aplicado depois de colorir o nome do pacote com white(), então
+       os códigos de escape ANSI eram contados como parte do comprimento
+       visível, quebrando o alinhamento das colunas. Agora o nome é paddado
+       primeiro (texto puro) e só depois recebe a cor.
+     - Removidas entradas duplicadas na listagem do -Sy: pacotes presentes
+       em mais de um repositório (ex.: repo principal + multilib) apareciam
+       uma vez por repositório. Aplicado uniquePackagesExact() sobre a lista
+       de atualizações, deduplicando por FullName (pacote+versão).
+
+   [1.4.0] - 2026-07-24
+   Added:
+     - Nova flag -Sy: sincroniza os índices dos repositórios (xbps-install -S)
+       e lista os pacotes com atualização disponível (versão instalada vs.
+       versão no repositório, com tamanho total de download), sem instalar
+       nada. Reaproveita o parser de repodata (readRepodataPlist).
+     - getInstalledPkgverByName(): mapeia nome do pacote -> pkgver instalado,
+       usado para comparação de versões no modo -Sy.
+     - extractVersion(): extrai a parte de versão/revisão de um pkgver.
+
+   [1.3.12] - 2026-07-24
+   Fixed:
+     - Corrigida duplicação da flag --ignore-file-conflicts: antes era
+       adicionada duas vezes ao instalar pacotes com flags contendo "u"
+       (ex.: -Syu). Agora é adicionada no máximo uma vez, cobrindo tanto
+       o caso de update (-u) quanto instalação de pacotes-alvo em geral.
+     - Substituído o parsing manual do repodata (offset fixo de 512 bytes)
+       por leitura real via archive/tar (readRepodataPlist), evitando falha
+       silenciosa quando o tar usa headers PAX estendidos.
+     - Detecção de arquitetura (repodataArch): x86_64-repodata deixou de ser
+       hardcoded; agora tenta detectar via `xbps-query -p architecture xbps`
+       ou `uname -m`, com fallback para x86_64.
+     - Erros de xbps-query (getInstalledPackages, getActiveRepos, listLocal)
+       agora são reportados em stderr em vez de ignorados silenciosamente.
+*/

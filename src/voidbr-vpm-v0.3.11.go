@@ -1,3 +1,16 @@
+/*
+   voidbr-vpm
+   Wrapper para o Void xbps-query
+
+   Site:      https://chililinux.com
+   GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
+
+   Created:   ter 03 fev 2026 13:08:22 -04
+   Updated:   qui 23 jul 2026 21:44:36 -04
+   Version:   0.3.11
+   Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
+*/
+
 package main
 
 import (
