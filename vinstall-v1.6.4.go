@@ -10,8 +10,8 @@
    GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
    Created:   ter 03 fev 2026 13:08:22 -04
-   Updated:   sex 24 jul 2026 00:00:00 -04
-   Version:   1.6.3
+   Updated:   seg 03 ago 2026 00:00:00 -04
+   Version:   1.6.4
    Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
 
@@ -42,7 +42,7 @@ import (
 )
 
 const (
-	Version     = "1.6.3"
+	Version     = "1.6.4"
 	Copyright   = "Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>"
 	execTimeout = 10 * time.Second
 )
@@ -229,10 +229,19 @@ func main() {
 		}
 
 		if len(targets) > 0 {
-			if !runBinary("xbps-install", flags, targets) {
-				suggestions := fetchSuggestions(targets[0])
-				if len(suggestions) > 0 {
-					displayMenu(suggestions, flags)
+			ok, errOutput := runInstall(flags, targets)
+			if !ok {
+				// Só oferece sugestões quando o xbps-install indica
+				// explicitamente que o pacote não existe no pool de
+				// repositórios. Outras falhas (espaço em disco, conflito
+				// de arquivos, permissão, etc.) não têm relação com o
+				// nome do pacote estar errado, então sugerir alternativas
+				// aqui seria enganoso.
+				if isPackageNotFoundError(errOutput) {
+					suggestions := fetchSuggestions(targets[0])
+					if len(suggestions) > 0 {
+						displayMenu(suggestions, flags)
+					}
 				}
 			} else {
 				for _, t := range targets {
@@ -304,6 +313,49 @@ func runBinary(bin string, flags []string, pkgs []string) bool {
 		return false
 	}
 	return true
+}
+
+// runInstall executa xbps-install para pacotes-alvo e, além do resultado
+// (sucesso/falha), captura a saída de erro (stderr) do processo. Isso
+// permite diferenciar POR QUE a instalação falhou — pacote inexistente no
+// pool de repositórios x qualquer outro motivo (espaço em disco, conflito
+// de arquivos, permissão negada, etc.) — decisão que fetchSuggestions/
+// displayMenu (sugestões de pacotes parecidos) precisa pra não aparecer
+// fora de contexto. O stderr continua sendo exibido ao vivo no terminal
+// via io.MultiWriter; a captura é só uma cópia paralela para inspeção.
+func runInstall(flags []string, targets []string) (ok bool, stderrOutput string) {
+	fmt.Printf("%s %s %s %s\n", cyan(">>>"), cyan("xbps-install"), yellow(fmt.Sprint(flags)), magenta(fmt.Sprint(targets)))
+	fmt.Print("\033[36m")
+	defer fmt.Print("\033[0m")
+	params := append([]string{"xbps-install"}, flags...)
+	params = append(params, targets...)
+	cmd := exec.Command("sudo", params...)
+	var stderrBuf bytes.Buffer
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+	cmd.Stdin = os.Stdin
+	err := cmd.Run()
+	if err != nil {
+		if exitError, ok2 := err.(*exec.ExitError); ok2 {
+			if status, ok3 := exitError.Sys().(syscall.WaitStatus); ok3 {
+				if status.Signaled() && status.Signal() == syscall.SIGINT {
+					fmt.Printf("\n%s %s\n", red("[!]"), white("Operação cancelada pelo usuário."))
+					os.Exit(1)
+				}
+			}
+		}
+		return false, stderrBuf.String()
+	}
+	return true, ""
+}
+
+// isPackageNotFoundError detecta a mensagem específica que o xbps-install
+// imprime quando um pacote-alvo não existe em nenhum repositório ativo:
+// "Package '<nome>' not found in repository pool.". É a única falha que
+// justifica oferecer sugestões (-Rs) como alternativa; qualquer outro erro
+// (disco, conflito, permissão) não tem relação com o nome estar errado.
+func isPackageNotFoundError(output string) bool {
+	return strings.Contains(output, "not found in repository pool")
 }
 
 // --- FUNÇÕES DE BUSCA DETALHADA E UTILITÁRIOS (INTACTOS) ---
@@ -1194,6 +1246,18 @@ func printUsage() {
 
 /*
    CHANGELOG
+
+   [1.6.4] - 2026-08-03
+   Fixed:
+     - Instalação de pacote-alvo (fluxo padrão) mostrava sugestões de
+       pacotes parecidos (fetchSuggestions/displayMenu) para QUALQUER
+       falha do xbps-install — inclusive espaço em disco insuficiente,
+       conflito de arquivos ou permissão negada — e não apenas quando o
+       pacote realmente não existia no pool de repositórios. Adicionada
+       runInstall(), que captura o stderr do xbps-install, e
+       isPackageNotFoundError(), que só libera as sugestões quando a
+       mensagem "Package '<nome>' not found in repository pool." está
+       presente na saída.
 
    [1.6.3] - 2026-07-24
    Fixed:
