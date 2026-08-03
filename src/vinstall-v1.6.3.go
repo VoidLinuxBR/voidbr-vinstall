@@ -11,7 +11,7 @@
 
    Created:   ter 03 fev 2026 13:08:22 -04
    Updated:   sex 24 jul 2026 00:00:00 -04
-   Version:   1.6.2
+   Version:   1.6.3
    Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
 
@@ -42,7 +42,7 @@ import (
 )
 
 const (
-	Version     = "1.6.2"
+	Version     = "1.6.3"
 	Copyright   = "Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>"
 	execTimeout = 10 * time.Second
 )
@@ -80,12 +80,10 @@ type Package struct {
 
 func main() {
 	args := os.Args[1:]
-
 	if len(args) == 0 {
 		printUsage()
 		return
 	}
-
 	var flags []string
 	var targets []string
 	mode := "install"
@@ -117,8 +115,6 @@ func main() {
 			flags = append(flags, arg)
 		case "-Scc":
 			mode = "clean"
-		case "-X", "-x":
-			mode = "remove"
 		case "-F":
 			mode = "find"
 		case "-FR":
@@ -141,7 +137,18 @@ func main() {
 			mode = "remote-search"
 			filter = "missing"
 		default:
-			if strings.HasPrefix(arg, "-Q") {
+			if strings.HasPrefix(arg, "-X") || strings.HasPrefix(arg, "-x") {
+				// -X/-x ativam o modo remove. Qualquer sufixo é repassado
+				// como flag real para o xbps-remove — mesmo esquema de
+				// passthrough já usado com o xbps-install (ex.: "-XR" vira
+				// a flag "-R", recursivo; "-xf" vira "-f", força). Sem
+				// sufixo (arg == "-X" ou "-x"), só ativa o modo remove.
+				mode = "remove"
+				suffix := strings.TrimPrefix(strings.TrimPrefix(arg, "-X"), "-x")
+				if suffix != "" {
+					flags = append(flags, "-"+suffix)
+				}
+			} else if strings.HasPrefix(arg, "-Q") {
 				mode = "query-generic"
 				filter = strings.Replace(arg, "-Q", "-", 1)
 			} else if strings.HasPrefix(arg, "-") {
@@ -1158,6 +1165,7 @@ func printUsage() {
 	fmt.Printf("  %s %-15s\n", green("vinstall"), white("telegram"))
 	fmt.Printf("  %s %-15s\n", green("vinstall"), white("-Syu"))
 	fmt.Printf("  %s %-15s %s\n", green("vinstall"), white("-X"), white("pacote (Remover)"))
+	fmt.Printf("  %s %-15s %s\n", green("vinstall"), white("-XR"), white("pacote (Remover recursivamente)"))
 	fmt.Printf("  %s %-15s %s\n", green("vinstall"), white("-f"), white("pacote (Força reinstalação/downgrade)"))
 	fmt.Printf("  %s %-15s %s\n", green("vinstall"), white("-F"), white("ifconfig (Busca local)"))
 	fmt.Printf("  %s %-15s %s\n", green("vinstall"), white("-FR"), white("ifconfig (Busca remota)"))
@@ -1173,6 +1181,11 @@ func printUsage() {
 	fmt.Printf("  %-20s %s\n", green("-Sf"), white("Igual ao -Syy, mas mostra TODAS as diferenças (inclui downgrades)"))
 	fmt.Printf("  %-20s %s\n", white("                    "), white("Downgrades exigem --force/-f para serem instalados:"))
 	fmt.Printf("  %-20s %s\n", white("                    "), cyan("vinstall -f pacote-versao_revisao"))
+	fmt.Println("\nRemoção:")
+	fmt.Printf("  %-20s %s\n", green("-X"), white("Remove um pacote"))
+	fmt.Printf("  %-20s %s\n", green("-XR"), white("Remove um pacote e suas dependências órfãs (recursivo)"))
+	fmt.Printf("  %-20s %s\n", white("                    "), white("Qualquer sufixo após -X/-x é repassado como flag"))
+	fmt.Printf("  %-20s %s\n", white("                    "), white("real para o xbps-remove."))
 	fmt.Println("\nManutenção:")
 	fmt.Printf("  %-20s %s\n", green("-Scc"), white("Limpa cache e órfãos"))
 	fmt.Printf("  %-20s %s\n", green("--history"), white("Mostra histórico de transações"))
@@ -1181,6 +1194,19 @@ func printUsage() {
 
 /*
    CHANGELOG
+
+   [1.6.3] - 2026-07-24
+   Fixed:
+     - -X e -x deixaram de ser case exato no switch: agora usam HasPrefix,
+       então qualquer sufixo (ex.: -XR, -xf) ativa mode=remove E repassa
+       o sufixo como flag real pro xbps-remove ("-R" = recursivo, "-f" =
+       força), igual ao passthrough já existente para o xbps-install.
+       Antes, "-XR" caía no default como flag solta e nunca acionava o
+       modo remove; um "vinstall -XR pacote" tentaria instalar em vez de
+       remover.
+   Changed:
+     - --help atualizado com exemplo de -XR e nota explicando o
+       passthrough de sufixos em -X/-x.
 
    [1.6.2] - 2026-07-24
    Changed:
