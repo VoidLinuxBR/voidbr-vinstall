@@ -1,99 +1,174 @@
 # voidbr-vinstall
 
-Wrapper para o Void xbps-query e xbps-install
+Wrapper para o xbps-install, xbps-query e xbps-remove do Void Linux.
 
 # vinstall 📦
 
-[![Version](https://img.shields.io/badge/version-1.2.4--20260203-cyan.svg)](https://github.com/voidlinuxbr/voidbr-vinstall)
+[![Version](https://img.shields.io/badge/version-1.6.9-cyan.svg)](https://github.com/voidlinuxbr/voidbr-vinstall)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Void Linux](https://img.shields.io/badge/platform-Void_Linux-blueviolet.svg)](https://voidlinux.org)
 [![Language](https://img.shields.io/badge/Made%20with-Go-00ADD8.svg?style=flat&logo=go)](https://go.dev/)
 
-**vinstall** é um wrapper inteligente e elegante para o gerenciador de pacotes xbps do Void Linux. Desenvolvido para tornar a experiência no terminal mais fluida, ele combina a robustez do xbps-install com uma interface interativa que ajuda você a encontrar o pacote certo quando ocorre um erro de digitação ou o nome é incerto.
+**vinstall** junta `xbps-install`, `xbps-query` e `xbps-remove` num único
+comando, com atalhos no estilo pacman. Quando o nome do pacote está errado ou
+incompleto, ele busca nos repositórios e oferece um menu para escolher.
 
-Este projeto faz parte do ecossistema Chili Linux e é mantido pela comunidade Void Linux Brasil.
+Faz parte da base do **VoidBR** e é mantido pela comunidade Void Linux Brasil.
+Foi feito para usar junto com o
+[voidbr-xbps](https://github.com/voidlinuxbr/voidbr-xbps) (o xbps com hooks e
+downloads paralelos), mas funciona com o xbps original.
 
 ---
 
 ## ✨ Funcionalidades
 
-* 🚀 Wrapper Direto: Repassa comandos e flags para o xbps-install de forma transparente.
-* 🔍 Sugestões Inteligentes: Se um pacote não for encontrado, o vinstall realiza uma busca automática nos repositórios remotos (xbps-query -Rs).
-* 🎨 Interface Moderna: Menu interativo com cores, índices alinhados e separadores que se ajustam automaticamente à largura do seu terminal.
-* ✅ Fidelidade Total: Exibe o status do pacote ([*] instalado, [-] disponível) e a versão exata, mantendo a compatibilidade visual do XBPS.
-* 🛡️ Privilégio Inteligente: Roda como usuário comum e solicita sudo apenas no momento da execução do comando de escrita.
+* 🚀 **Repassa as flags:** tudo o que o `xbps-install` aceita funciona igual no
+  vinstall; o que ele não conhece vai direto para o xbps.
+* 🔍 **Sugere pacotes:** se o nome não existe nos repositórios, busca
+  (`xbps-query -Rs`) e mostra um menu numerado para escolher.
+* 🗑️ **Remove e busca no mesmo comando:** `-X` para remover, `-Ss`/`-Qs` para
+  buscar, `-F` para descobrir qual pacote tem um arquivo.
+* 🔄 **Mostra as atualizações:** `-Sy` sincroniza e lista o que vai mudar,
+  sem instalar nada.
+* 🧹 **Limpeza em um comando:** `-Scc` esvazia o cache e remove os órfãos,
+  sem perguntar.
+* ⚙️ **Ativa serviços:** depois de instalar um pacote que tem serviço runit
+  (`/etc/sv/<pacote>`), pergunta se você quer ativá-lo.
+* ⚡ **Downloads paralelos:** aceita `--parallel-downloads <n>` e a variável
+  `XBPS_PARALLEL_DOWNLOADS` (com o voidbr-xbps).
+* 🛡️ **sudo só quando precisa:** roda como usuário comum e pede `sudo` apenas
+  na hora de alterar o sistema.
 
 ---
 
 ## 🛠 Instalação
 
-### Via Repositório (Recomendado)
+### Via repositório (recomendado)
 
-Se você já utiliza o repositório voidlinuxbr ou está no Chili Linux, instale diretamente via xbps:
+No VoidBR o vinstall já vem instalado. Em outro Void com o repositório
+voidlinuxbr:
+
 ```bash
 sudo xbps-install -S voidbr-vinstall
 ```
 
-### Via Código Fonte (Compilação)
+### Via código-fonte
 
-Certifique-se de ter o Go instalado:
+É preciso ter o Go instalado:
 
 ```bash
 sudo xbps-install -S go
-```
-
-1. Clone o repositório:
-```bash
 git clone https://github.com/voidlinuxbr/voidbr-vinstall.git
 cd voidbr-vinstall
+go build -o vinstall vinstall-v1.6.9.go
+sudo install -m755 vinstall /usr/local/bin/vinstall
 ```
 
-2. Compile o binário:
-```bash
-go build -o vinstall vinstall-v1.2.4.go
-```
-
-3. Mova para seu PATH:
-```bash
-sudo mv vinstall /usr/local/bin/
-```
+O fonte da versão atual fica na raiz (`vinstall-v<versão>.go`); as versões
+anteriores ficam em `src/`.
 
 ---
 
 ## 🚀 Como usar
 
-O vinstall aceita as mesmas flags que o xbps-install.
-
-Uso básico:
 ```bash
-vinstall telegram
+vinstall [opções] [pacote...]
 ```
 
-Atualizar o sistema:
+### Instalar e atualizar
+
 ```bash
-vinstall -Syu
+vinstall telegram                       # instala (ou sugere, se o nome não existir)
+vinstall -Syu                           # atualiza o sistema
+vinstall -f yasm                        # força reinstalação ou downgrade
+vinstall -y telegram                    # instala sem perguntar
+vinstall --parallel-downloads 8 -Syu    # 8 downloads simultâneos
 ```
 
-Forçar reinstalação:
+### Sincronizar
+
 ```bash
-vinstall -f yasm
+vinstall -Sy      # sincroniza e lista as atualizações disponíveis
+vinstall -Syy     # igual, forçando o resync dos índices
+vinstall -Sf      # igual ao -Syy, listando também os downgrades
 ```
 
-Ajuda do vinstall:
+### Buscar
+
 ```bash
-vinstall -h
+vinstall -Ss termo      # nos repositórios (rápido)
+vinstall -Sss termo     # nos repositórios, detalhado
+vinstall -Ssi termo     # nos repositórios, só os instalados
+vinstall -Ssu termo     # nos repositórios, só os não instalados
+vinstall -Qs termo      # nos pacotes instalados
+vinstall -F ifconfig    # qual pacote instalado tem esse arquivo
+vinstall -FR ifconfig   # qual pacote dos repositórios tem esse arquivo
+vinstall -Qx pacote     # qualquer -Q<opção> vai para o xbps-query (aqui, -x)
 ```
+
+### Listar
+
+```bash
+vinstall -Li      # pacotes instalados
+vinstall -Lo      # pacotes órfãos
+```
+
+### Remover
+
+```bash
+vinstall -X pacote      # remove
+vinstall -XR pacote     # remove junto as dependências que ficaram órfãs
+vinstall -Xy pacote     # o que vem depois do -X vai para o xbps-remove (aqui, -y)
+```
+
+### Manutenção
+
+```bash
+vinstall -Scc         # esvazia o cache e remove os órfãos
+vinstall --history    # histórico de transações
+```
+
+A lista completa está em `vinstall -h`.
+
+### Downloads paralelos
+
+Com o [voidbr-xbps](https://github.com/voidlinuxbr/voidbr-xbps), o valor
+padrão vem do `paralleldownloads=` em `/etc/xbps.d/xbps.conf`. Para trocar
+numa execução, qualquer uma das formas funciona:
+
+```bash
+vinstall --parallel-downloads 8 -Syu
+vinstall --parallel-downloads=8 -Syu
+XBPS_PARALLEL_DOWNLOADS=8 vinstall -Syu
+```
+
+O `sudo` limpa as variáveis de ambiente, então o vinstall converte a
+`XBPS_PARALLEL_DOWNLOADS` em `--parallel-downloads=<n>` antes de chamar o
+`xbps-install`.
+
+---
+
+## 🧰 Outras ferramentas do pacote
+
+O pacote `voidbr-vinstall` também instala, em `/usr/local/bin/`:
+
+| Ferramenta | O que faz |
+|---|---|
+| `voidbr-vkpurge` | remove com segurança os kernels que não estão mais em uso |
+| `voidbr-dmesg` | monitor de logs do sistema |
+| `voidbr-vpm` | wrapper para o `xbps-query` |
 
 ---
 
 ## 🤝 Contribuição
 
-Contribuições são muito bem-vindas! Sinta-se à vontade para abrir Issues ou enviar um Pull Request.
+Contribuições são muito bem-vindas! Sinta-se à vontade para abrir Issues ou
+enviar um Pull Request.
 
 1. Fork o projeto
-2. Crie sua Feature Branch (git checkout -b feature/NovaFeature)
-3. Commit suas mudanças (git commit -m 'Adiciona nova feature')
-4. Push para a Branch (git push origin feature/NovaFeature)
+2. Crie sua Feature Branch (`git checkout -b feature/NovaFeature`)
+3. Commit suas mudanças (`git commit -m 'Adiciona nova feature'`)
+4. Push para a Branch (`git push origin feature/NovaFeature`)
 5. Abra um Pull Request
 
 ---
@@ -102,8 +177,8 @@ Contribuições são muito bem-vindas! Sinta-se à vontade para abrir Issues ou 
 
 * Criado por: Vilmar Catafesta <vcatafesta@gmail.com>
 * Comunidade: Void Linux Brasil ([https://github.com/voidlinuxbr](https://github.com/voidlinuxbr))
+* Distribuição: VoidBR ([https://voidbr.org](https://voidbr.org))
 * Distribuição: Chili Linux ([https://chililinux.com](https://chililinux.com))
-* Distribuição: VoidBR ([https://github.com/voidlinuxbr](https://github.com/voidlinuxbr))
 
 ---
 
@@ -114,3 +189,4 @@ ESTE SOFTWARE É FORNECIDO "COMO ESTÁ", SEM ABSOLUTAMENTE NENHUMA GARANTIA DE Q
 ---
 
 Copyright (C) 2019-2026 Vilmar Catafesta
+Copyright (c) 2026-2026, VoidBR Development Team <https://voidbr.org>
