@@ -4,7 +4,7 @@ Wrapper para o xbps-install, xbps-query e xbps-remove do Void Linux.
 
 # vinstall 📦
 
-[![Version](https://img.shields.io/badge/version-1.6.9-cyan.svg)](https://github.com/voidlinuxbr/voidbr-vinstall)
+[![Version](https://img.shields.io/badge/version-1.6.10-cyan.svg)](https://github.com/voidlinuxbr/voidbr-vinstall)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Void Linux](https://img.shields.io/badge/platform-Void_Linux-blueviolet.svg)](https://voidlinux.org)
 [![Language](https://img.shields.io/badge/Made%20with-Go-00ADD8.svg?style=flat&logo=go)](https://go.dev/)
@@ -30,8 +30,9 @@ downloads paralelos), mas funciona com o xbps original.
   buscar, `-F` para descobrir qual pacote tem um arquivo.
 * 🔄 **Mostra as atualizações:** `-Sy` sincroniza e lista o que vai mudar,
   sem instalar nada.
-* 🧹 **Limpeza em um comando:** `-Scc` esvazia o cache e remove os órfãos,
-  sem perguntar.
+* 🧹 **Limpeza em um comando:** `-Sc` tira do cache só os pacotes não
+  instalados e as versões antigas; `-Scc` esvazia o cache e remove os órfãos,
+  sem perguntar. Ambos mostram quanto foi removido.
 * ⚙️ **Ativa serviços:** depois de instalar um pacote que tem serviço runit
   (`/etc/sv/<pacote>`), pergunta se você quer ativá-lo.
 * ⚡ **Downloads paralelos:** aceita `--parallel-downloads <n>` e a variável
@@ -60,7 +61,7 @@ sudo xbps-install -S voidbr-vinstall
 sudo xbps-install -S go
 git clone https://github.com/voidlinuxbr/voidbr-vinstall.git
 cd voidbr-vinstall
-go build -o vinstall vinstall-v1.6.9.go
+go build -o vinstall vinstall-v1.6.10.go
 sudo install -m755 vinstall /usr/local/bin/vinstall
 ```
 
@@ -117,13 +118,14 @@ vinstall -Lo      # pacotes órfãos
 
 ```bash
 vinstall -X pacote      # remove
-vinstall -XR pacote     # remove junto as dependências que ficaram órfãs
+vinstall -XR pacote     # remove junto as dependências que ficaram órfãs (mostra a contagem)
 vinstall -Xy pacote     # o que vem depois do -X vai para o xbps-remove (aqui, -y)
 ```
 
 ### Manutenção
 
 ```bash
+vinstall -Sc          # limpa do cache só não instalados e versões antigas
 vinstall -Scc         # esvazia o cache e remove os órfãos
 vinstall --history    # histórico de transações
 ```
