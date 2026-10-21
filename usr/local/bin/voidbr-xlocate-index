@@ -28,12 +28,38 @@ repo_dir="$(realpath -e "${1:-/vg/void-mirror/extra}")"
 index_git="${2:-$repo_dir/xlocate/xlocate.git}"
 arch="${XBPS_ARCH:-x86_64}"
 
+# cores só no terminal; no cron (saída para o log) sai texto puro
+if [[ -t 1 ]]; then
+	reset=$'\e[0m'
+	bold=$'\e[1m'
+	red=$'\e[1;31m'
+	green=$'\e[1;32m'
+	yellow=$'\e[1;33m'
+	cyan=$'\e[1;36m'
+	white=$'\e[1;37m'
+	gray=$'\e[90m'
+else
+	reset= bold= red= green= yellow= cyan= white= gray=
+fi
+
+prefix() {
+	printf '%s' "${cyan}voidbr-xlocate-index:${reset} ${gray}$(date '+%F %T')${reset}"
+}
+
 msg() {
-	echo "voidbr-xlocate-index: $(date '+%F %T') $*"
+	echo "$(prefix) ${white}$*${reset}"
+}
+
+ok() {
+	echo "$(prefix) ${green}$*${reset}"
+}
+
+warn() {
+	echo "$(prefix) ${yellow}$*${reset}"
 }
 
 die() {
-	echo "voidbr-xlocate-index: $(date '+%F %T') ERRO: $*" >&2
+	echo "$(prefix) ${red}ERRO:${reset} ${white}$*${reset}" >&2
 	exit 1
 }
 
@@ -43,12 +69,12 @@ done
 [[ -f "$repo_dir/$arch-repodata" ]] || die "$arch-repodata não encontrado em $repo_dir"
 
 if ((!force)) && [[ -f "$index_git/info/refs" && ! "$repo_dir/$arch-repodata" -nt "$index_git/info/refs" ]]; then
-	msg "sem mudanças em $repo_dir desde o último índice; nada a fazer (use -f para forçar)"
+	warn "sem mudanças em ${cyan}$repo_dir${yellow} desde o último índice; nada a fazer (use -f para forçar)"
 	exit 0
 fi
 
-msg "início — repositório: $repo_dir ($arch)"
-msg "destino: $index_git"
+msg "início — repositório: ${cyan}$repo_dir${white} ($arch)"
+msg "destino: ${cyan}$index_git"
 
 work="$(mktemp -d -t voidbr-xlocate.XXXXXX)"
 trap 'rm -rf "$work"' EXIT
@@ -74,7 +100,7 @@ shopt -s nullglob
 files=(./*)
 ((${#files[@]})) || die "nenhum pacote encontrado em $repo_dir; índice NÃO publicado."
 
-msg "${#files[@]} pacotes lidos; ordenando as listas..."
+msg "${yellow}${#files[@]}${white} pacotes lidos; ordenando as listas..."
 for f in "${files[@]}"; do
 	LC_ALL=C sort -o "$f" "$f"
 done
@@ -95,4 +121,4 @@ mkdir -p "${index_git%/*}"
 [[ -d "$index_git" ]] && mv "$index_git" "$work/old.git"
 mv "$work/new.git" "$index_git"
 
-msg "concluído: ${#files[@]} pacotes indexados em $index_git"
+ok "concluído: ${yellow}${#files[@]}${green} pacotes indexados em ${cyan}$index_git"
