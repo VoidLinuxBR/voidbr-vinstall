@@ -2,7 +2,7 @@
    xbps-query -R -p run_depends -s sdbus-cpp
 
    voidbr-vinstall
-   Wrapper para o Void xbps-query e xbps-install
+   Wrapper para o Void xbps-install, xbps-query e xbps-remove
 
    Site:      https://chililinux.com
    Site:      https://voidbr.org

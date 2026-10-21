@@ -2,7 +2,7 @@
 # Maintainer: Vilmar Catafesta <vcatafesta@gmail.com>
 
 pkgname=voidbr-vinstall
-pkgdesc="Wrapper para o Void xbps-query e xbps-install"
+pkgdesc="Wrapper para o Void xbps-install, xbps-query e xbps-remove"
 pkgver=$(date +%Y%m%d)
 pkgrel=$(date +%H%M)
 arch=('any')

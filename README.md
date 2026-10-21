@@ -1,6 +1,6 @@
 # voidbr-vinstall
 
-Wrapper para o xbps-install, xbps-query e xbps-remove do Void Linux.
+Wrapper para o Void xbps-install, xbps-query e xbps-remove
 
 # vinstall 📦
 
