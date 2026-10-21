@@ -1,0 +1,85 @@
+#compdef vinstall
+# zsh completion para o vinstall (VoidBR)
+# instalado em /usr/share/zsh/site-functions/_vinstall
+
+_vinstall() {
+	local -a opts
+	opts=(
+		'-Syu:sincroniza e atualiza o sistema'
+		'-Sy:sincroniza índices e lista as atualizações'
+		'-Syy:igual ao -Sy, forçando o resync'
+		'-Sf:igual ao -Syy, listando também downgrades'
+		'-Sc:limpa do cache não instalados e versões antigas'
+		'-Scc:esvazia o cache e remove os órfãos'
+		'-Ss:busca nos repositórios (rápido)'
+		'-Sss:busca nos repositórios, detalhado'
+		'-Ssi:busca nos repositórios, só os instalados'
+		'-Ssu:busca nos repositórios, só os não instalados'
+		'-Qs:busca nos pacotes instalados'
+		'-Qf:lista os arquivos de um pacote instalado'
+		'-QRf:lista os arquivos de um pacote do repositório'
+		'-F:qual pacote instalado tem o arquivo'
+		'-FR:qual pacote dos repositórios tem o arquivo'
+		'-Fa:igual ao -F, em qualquer parte do caminho'
+		'-FRa:igual ao -FR, em qualquer parte do caminho'
+		'-Fx:igual ao -F, com expressão regular'
+		'-FRx:igual ao -FR, com expressão regular'
+		'-Li:lista os pacotes instalados'
+		'-Lo:lista os pacotes órfãos'
+		'-X:remove o pacote'
+		'-XR:remove o pacote e as dependências órfãs'
+		'-f:força reinstalação ou downgrade'
+		'-y:responde sim a tudo'
+		'--parallel-downloads:downloads simultâneos (1-16)'
+		'--repository:repositório extra'
+		'--rootdir:diretório raiz'
+		'--config:diretório de configuração'
+		'--cachedir:diretório de cache'
+		'--history:histórico de transações'
+		'--help:ajuda'
+		'--version:versão do vinstall'
+	)
+
+	case "${words[CURRENT-1]}" in
+	--parallel-downloads)
+		compadd -- {1..16}
+		return
+		;;
+	--repository | --rootdir | --config | --cachedir)
+		_files -/
+		return
+		;;
+	esac
+
+	if [[ "$PREFIX" == -* ]]; then
+		_describe -t options 'opção do vinstall' opts
+		return
+	fi
+
+	# o modo vem da opção já digitada antes
+	local mode=remote word
+	for word in "${(@)words[2,CURRENT-1]}"; do
+		case "$word" in
+		-F* | -Ss* | -Qs | -Li | -Lo | -Sc | -Scc | --history) mode=none ;;
+		-X* | -x*) mode=installed ;;
+		-QR*) mode=remote ;;
+		-Q*) mode=installed ;;
+		esac
+	done
+
+	local -a pkgs
+	case "$mode" in
+	installed)
+		pkgs=(${(f)"$(xbps-query -l 2>/dev/null | awk '{print $2}' | sed 's/-[^-]*$//')"})
+		;;
+	remote)
+		# só consulta com algo digitado: a lista completa tem milhares de pacotes
+		[[ -n "$PREFIX" ]] || return
+		pkgs=(${(f)"$(xbps-query -Rs "$PREFIX" 2>/dev/null | awk '{print $2}' | sed 's/-[^-]*$//')"})
+		;;
+	*) return ;;
+	esac
+	compadd -a pkgs
+}
+
+_vinstall "$@"

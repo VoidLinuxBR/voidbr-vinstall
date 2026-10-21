@@ -1,0 +1,58 @@
+# bash completion para o vinstall (VoidBR)
+# instalado em /usr/share/bash-completion/completions/vinstall
+
+_vinstall_installed() {
+	xbps-query -l 2>/dev/null | awk '{print $2}' | sed 's/-[^-]*$//'
+}
+
+_vinstall_remote() {
+	# só consulta com algo digitado: a lista completa tem milhares de pacotes
+	[[ -n "$1" ]] || return
+	xbps-query -Rs "$1" 2>/dev/null | awk '{print $2}' | sed 's/-[^-]*$//'
+}
+
+_vinstall() {
+	local cur prev word mode=remote i
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+	prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+	local opts="-Syu -Sy -Syy -Sf -Sc -Scc -Ss -Sss -Ssi -Ssu -Qs -Qf -QRf
+		-F -FR -Fa -FRa -Fx -FRx -Li -Lo -X -XR -f -y -u
+		--parallel-downloads --repository --rootdir --config --cachedir
+		--history -h --help -v --version"
+
+	case "$prev" in
+	--parallel-downloads)
+		mapfile -t COMPREPLY < <(compgen -W "$(seq 1 16)" -- "$cur")
+		return
+		;;
+	--repository | --rootdir | --config | --cachedir)
+		mapfile -t COMPREPLY < <(compgen -d -- "$cur")
+		return
+		;;
+	esac
+
+	if [[ "$cur" == -* ]]; then
+		mapfile -t COMPREPLY < <(compgen -W "$opts" -- "$cur")
+		return
+	fi
+
+	# o modo vem da opção já digitada antes
+	for ((i = 1; i < COMP_CWORD; i++)); do
+		word="${COMP_WORDS[i]}"
+		case "$word" in
+		-F* | -Ss* | -Qs | -Li | -Lo | -Sc | -Scc | --history) mode=none ;;
+		-X* | -x*) mode=installed ;;
+		-QR*) mode=remote ;;
+		-Q*) mode=installed ;;
+		esac
+	done
+
+	case "$mode" in
+	installed) mapfile -t COMPREPLY < <(compgen -W "$(_vinstall_installed)" -- "$cur") ;;
+	remote) mapfile -t COMPREPLY < <(compgen -W "$(_vinstall_remote "$cur")" -- "$cur") ;;
+	esac
+}
+
+complete -F _vinstall vinstall
