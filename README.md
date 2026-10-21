@@ -107,6 +107,56 @@ vinstall -FR ifconfig   # qual pacote dos repositórios tem esse arquivo
 vinstall -Qx pacote     # qualquer -Q<opção> vai para o xbps-query (aqui, -x)
 ```
 
+### Buscar arquivos (`-F`)
+
+No estilo do `pacman -F`: diz qual pacote tem um arquivo.
+
+```bash
+vinstall -F ifconfig            # instalados: "ifconfig" no NOME do arquivo
+vinstall -FR ifconfig           # repositórios: idem
+vinstall -Fa ifconfig           # "ifconfig" em qualquer parte do caminho
+vinstall -FRa ifconfig
+vinstall -Fx 'ifconfig\.[0-9]$' # expressão regular no caminho completo
+vinstall -FRx 'ifconfig\.[0-9]$'
+```
+
+| Modo | Casa |
+|---|---|
+| `-F` / `-FR` | o termo no **nome** do arquivo, não nos diretórios (com `/` no termo, vale o caminho) |
+| `-Fa` / `-FRa` | o termo em **qualquer parte** do caminho |
+| `-Fx` / `-FRx` | **expressão regular** no caminho completo |
+
+O resultado sai numa tabela `[✓]/[-]  pacote  caminho`; `[✓]` = instalado.
+
+**Como o `-FR` funciona:** usa o [`xlocate`](https://man.voidlinux.org/xlocate.1)
+(pacote `xtools`), que busca num índice de arquivos baixado para
+`~/.cache`, sem consultar a rede a cada busca. O vinstall:
+
+- descobre os índices a partir dos repositórios do `xbps.d`, procurando
+  `<repo>/xlocate/xlocate.git` em cada um (e repositórios locais no disco);
+- sempre inclui o índice oficial do Void;
+- junta servidores com o mesmo índice (mirrors) num só, um servindo de
+  reserva do outro;
+- atualiza cada índice sozinho (`xlocate -S`) quando tem mais de 24h.
+
+Sem resultado por arquivo, o `-FR` mostra os pacotes com esse nome
+(`xbps-query -Rs`).
+
+### Índice de arquivos do repositório VoidBR (servidor)
+
+O índice do repositório VoidBR é gerado no servidor por
+[`server/voidbr-xlocate-index.sh`](server/voidbr-xlocate-index.sh) e fica
+**dentro do repositório**, em `<repo>/xlocate/xlocate.git` — assim ele
+acompanha o repositório em qualquer mirror.
+
+```bash
+sudo install -Dm755 server/voidbr-xlocate-index.sh /usr/local/bin/voidbr-xlocate-index
+sudo install -Dm644 server/voidbr-xlocate-index.cron /etc/cron.d/voidbr-xlocate-index
+sudo voidbr-xlocate-index -f    # primeira geração
+```
+
+O cron roda a cada hora e só regera quando o repositório mudou.
+
 ### Listar
 
 ```bash

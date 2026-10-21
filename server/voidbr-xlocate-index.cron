@@ -1,0 +1,5 @@
+# /etc/cron.d/voidbr-xlocate-index
+# Regera o índice xlocate do repositório VoidBR a cada hora, no minuto 5.
+# O script só trabalha quando o repositório mudou; o flock evita duas
+# execuções ao mesmo tempo.
+5 * * * * root flock -n /run/voidbr-xlocate-index.lock /usr/local/bin/voidbr-xlocate-index >> /var/log/voidbr-xlocate-index.log 2>&1
