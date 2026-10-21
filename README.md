@@ -135,6 +135,13 @@ vinstall -QRf pacote            # pacote do repositório (xbps-query -Rf)
 
 O resultado sai numa tabela `[✓]/[-]  pacote  caminho`; `[✓]` = instalado.
 
+Aceita vários termos (`vinstall -F ifconfig route`) e sai com código `1`
+se algum não for encontrado, como o `pacman -F` — dá para usar em script:
+
+```bash
+vinstall -F ifconfig >/dev/null || echo "ifconfig não está instalado"
+```
+
 **Como o `-FR` funciona:** usa o [`xlocate`](https://man.voidlinux.org/xlocate.1)
 (pacote `xtools`), que busca num índice de arquivos baixado para
 `~/.cache`, sem consultar a rede a cada busca. O vinstall:
@@ -204,6 +211,15 @@ XBPS_PARALLEL_DOWNLOADS=8 vinstall -Syu
 O `sudo` limpa as variáveis de ambiente, então o vinstall converte a
 `XBPS_PARALLEL_DOWNLOADS` em `--parallel-downloads=<n>` antes de chamar o
 `xbps-install`.
+
+---
+
+### Autocompletar
+
+O pacote instala o autocompletar para **bash** e **zsh**: as opções do
+vinstall e, conforme a opção, os nomes de pacote — instalados depois de
+`-X`/`-XR`/`-Qf`, do repositório na instalação e no `-QRf`. Abra um
+terminal novo depois de instalar.
 
 ---
 
