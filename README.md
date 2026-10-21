@@ -144,13 +144,13 @@ Sem resultado por arquivo, o `-FR` mostra os pacotes com esse nome
 
 ### Índice de arquivos do repositório VoidBR (servidor)
 
-O índice do repositório VoidBR é gerado no servidor por
-[`server/voidbr-xlocate-index.sh`](server/voidbr-xlocate-index.sh) e fica
+O índice do repositório VoidBR é gerado no servidor pelo
+[`voidbr-xlocate-index`](usr/local/bin/voidbr-xlocate-index), instalado
+junto com o pacote em `/usr/local/bin/`, e fica
 **dentro do repositório**, em `<repo>/xlocate/xlocate.git` — assim ele
 acompanha o repositório em qualquer mirror.
 
 ```bash
-sudo install -Dm755 server/voidbr-xlocate-index.sh /usr/local/bin/voidbr-xlocate-index
 sudo install -Dm644 server/voidbr-xlocate-index.cron /etc/cron.d/voidbr-xlocate-index
 sudo voidbr-xlocate-index -f    # primeira geração
 ```
@@ -209,6 +209,7 @@ O pacote `voidbr-vinstall` também instala, em `/usr/local/bin/`:
 | `voidbr-vkpurge` | remove com segurança os kernels que não estão mais em uso |
 | `voidbr-dmesg` | monitor de logs do sistema |
 | `voidbr-vpm` | wrapper para o `xbps-query` |
+| `voidbr-xlocate-index` | gera o índice `xlocate` de um repositório (uso no servidor) |
 
 ---
 
