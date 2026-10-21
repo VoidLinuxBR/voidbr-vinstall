@@ -120,6 +120,13 @@ vinstall -Fx 'ifconfig\.[0-9]$' # expressão regular no caminho completo
 vinstall -FRx 'ifconfig\.[0-9]$'
 ```
 
+O caminho inverso — listar os arquivos de um pacote:
+
+```bash
+vinstall -Qf pacote             # pacote instalado (xbps-query -f)
+vinstall -QRf pacote            # pacote do repositório (xbps-query -Rf)
+```
+
 | Modo | Casa |
 |---|---|
 | `-F` / `-FR` | o termo no **nome** do arquivo, não nos diretórios (com `/` no termo, vale o caminho) |
