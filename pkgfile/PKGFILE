@@ -12,7 +12,7 @@ url="https://github.com/voidlinuxbr/${pkgname}"
 source=("git+${url}.git")
 md5sums=('SKIP')
 makedepends=()
-depends=(voidbr-xbps)
+depends=(voidbr-xbps xtools)
 
 package() {
 	# Verify default folder
