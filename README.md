@@ -107,6 +107,19 @@ vinstall -FR ifconfig   # qual pacote dos repositórios tem esse arquivo
 vinstall -Qx pacote     # qualquer -Q<opção> vai para o xbps-query (aqui, -x)
 ```
 
+O `-Ss`/`-Ssi`/`-Ssu` e o `-Sss` aceitam **expressão regular**, detectada
+sozinha: um termo com `^ $ | ( ) [ ] { } \ * ?` ou `.+` é tratado como regex
+(sem diferenciar maiúsculas de minúsculas no `-Sss`). `+` e `.` sozinhos
+contam como texto, para nomes como `gtk+3`, `libstdc++` e `python3.12`.
+Use aspas, para o shell não mexer no termo.
+
+```bash
+vinstall -Ss '^fire'              # nome começando com "fire"
+vinstall -Ss 'fire.*fox'          # "fire", qualquer coisa, "fox"
+vinstall -Ss 'qt[56]-base'        # qt5-base ou qt6-base
+vinstall -Sss 'joystick|gamepad'  # um ou outro, no texto completo
+```
+
 ### Buscar arquivos (`-F`)
 
 No estilo do `pacman -F`: diz qual pacote tem um arquivo.
