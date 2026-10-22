@@ -16,6 +16,8 @@ _vinstall() {
 		'-Ssi:busca nos repositórios, só os instalados'
 		'-Ssu:busca nos repositórios, só os não instalados'
 		'-Qs:busca nos pacotes instalados'
+		'-Si:informações do pacote no repositório'
+		'-Qi:informações do pacote instalado'
 		'-Qf:lista os arquivos de um pacote instalado'
 		'-QRf:lista os arquivos de um pacote do repositório'
 		'-F:qual pacote instalado tem o arquivo'

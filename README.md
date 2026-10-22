@@ -102,6 +102,8 @@ vinstall -Sss termo     # nos repositórios, detalhado
 vinstall -Ssi termo     # nos repositórios, só os instalados
 vinstall -Ssu termo     # nos repositórios, só os não instalados
 vinstall -Qs termo      # nos pacotes instalados
+vinstall -Si pacote     # informações do pacote no repositório
+vinstall -Qi pacote     # informações do pacote instalado
 vinstall -F ifconfig    # qual pacote instalado tem esse arquivo
 vinstall -FR ifconfig   # qual pacote dos repositórios tem esse arquivo
 vinstall -Qx pacote     # qualquer -Q<opção> vai para o xbps-query (aqui, -x)

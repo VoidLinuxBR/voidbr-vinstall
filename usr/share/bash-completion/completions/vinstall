@@ -17,7 +17,7 @@ _vinstall() {
 	cur="${COMP_WORDS[COMP_CWORD]}"
 	prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-	local opts="-Syu -Sy -Syy -Sf -Sc -Scc -Ss -Sss -Ssi -Ssu -Qs -Qf -QRf
+	local opts="-Syu -Sy -Syy -Sf -Sc -Scc -Ss -Sss -Ssi -Ssu -Si -Qi -Qs -Qf -QRf
 		-F -FR -Fa -FRa -Fx -FRx -Li -Lo -X -XR -f -y -u
 		--parallel-downloads --repository --rootdir --config --cachedir
 		--history -h --help -v --version"
