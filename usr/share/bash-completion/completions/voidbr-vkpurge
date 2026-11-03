@@ -1,0 +1,110 @@
+# bash completion para voidbr-vkpurge
+#
+# Instalar em: /usr/share/bash-completion/completions/voidbr-vkpurge
+#
+# Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
+
+# Lista as versões de kernel órfãs, aplicando os mesmos filtros do
+# voidbr-vkpurge: exclui o kernel em execução, os kernels que ainda
+# pertencem a pacotes instalados (via xbps-query) e nomes que o
+# isValidKernelVersion() recusaria.
+#
+#   $1 = boot  -> só /boot/vmlinu[xz]-*            (igual ao listKernels: list e rm all)
+#   $1 = all   -> /boot + diretórios em /usr/lib/modules (igual ao rm <versão>)
+_voidbr_vkpurge_kernels() {
+	local scope=${1:-boot}
+	local running f k globopts
+	local -a files
+	local -A seen=() installed=()
+
+	# Não depende de nullglob/failglob do usuário
+	globopts=$(shopt -p nullglob failglob)
+	shopt -s nullglob
+	shopt -u failglob
+
+	running=$(uname -r 2>/dev/null)
+
+	if command -v xbps-query >/dev/null 2>&1; then
+		while read -r f; do
+			[[ $f =~ vmlinu[xz]-([^[:space:]]+) ]] && installed[${BASH_REMATCH[1]}]=1
+		done < <(xbps-query -o '/boot/vmlinu[xz]-*' 2>/dev/null)
+	fi
+
+	files=(/boot/vmlinuz-* /boot/vmlinux-*)
+	[[ $scope == all ]] && files+=(/usr/lib/modules/*/)
+
+	for f in "${files[@]}"; do
+		f=${f%/}
+		k=${f##*/}
+		[[ $f == /boot/* ]] && k=${k##*-}
+		[[ $k =~ ^[A-Za-z0-9._+-]+$ && $k != *..* ]] || continue
+		[[ $k == "$running" ]] && continue
+		[[ -n ${installed[$k]} ]] && continue
+		seen[$k]=1
+	done
+
+	eval "$globopts"
+	printf '%s\n' "${!seen[@]}"
+}
+
+_voidbr_vkpurge() {
+	local cur prev i word
+	local cmd="" target=0 cleanup=0 force=0 dryrun=0
+	local -a opts=()
+
+	COMPREPLY=()
+	cur=${COMP_WORDS[COMP_CWORD]}
+	prev=${COMP_WORDS[COMP_CWORD - 1]}
+
+	# Analisa o que já foi digitado do mesmo jeito que o main() do Go:
+	# a palavra logo após list/rm (se não começar com "-") é o alvo,
+	# mesmo que seja "list" ou "rm".
+	for ((i = 1; i < COMP_CWORD; i++)); do
+		word=${COMP_WORDS[i]}
+		case $word in
+			list | rm)
+				cmd=$word
+				if ((i + 1 < COMP_CWORD)) && [[ ${COMP_WORDS[i + 1]} != -* ]]; then
+					target=1
+					((i++))
+				fi
+				;;
+			--cleanup) cleanup=1 ;;
+			--force) force=1 ;;
+			--dry-run) dryrun=1 ;;
+			-h | --help) return 0 ;;
+		esac
+	done
+
+	# Alvo logo após `rm` ou `list`
+	if [[ $cur != -* && -n $cmd && $target -eq 0 && $prev == "$cmd" ]]; then
+		case $cmd in
+			rm) COMPREPLY=($(compgen -W "all $(_voidbr_vkpurge_kernels all)" -- "$cur")) ;;
+			list) COMPREPLY=($(compgen -W "$(_voidbr_vkpurge_kernels boot)" -- "$cur")) ;;
+		esac
+		return 0
+	fi
+
+	# Opções que ainda fazem sentido
+	if ((cleanup)); then
+		((force)) || opts+=(--force)
+		((dryrun)) || opts+=(--dry-run)
+	elif [[ -n $cmd ]]; then
+		# list ignora --dry-run; rm aceita
+		[[ $cmd == rm && $dryrun -eq 0 ]] && opts+=(--dry-run)
+	elif ((force)); then
+		# --force só tem efeito junto com --cleanup
+		opts+=(--cleanup)
+		((dryrun)) || opts+=(--dry-run)
+	elif ((dryrun)); then
+		# --dry-run só tem efeito em rm e --cleanup
+		opts+=(rm --cleanup --force)
+	else
+		opts+=(list rm --cleanup --dry-run --force --help)
+	fi
+
+	COMPREPLY=($(compgen -W "${opts[*]}" -- "$cur"))
+	return 0
+}
+
+complete -F _voidbr_vkpurge voidbr-vkpurge
