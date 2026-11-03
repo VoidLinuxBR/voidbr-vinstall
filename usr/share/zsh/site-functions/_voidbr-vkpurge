@@ -1,0 +1,124 @@
+#compdef voidbr-vkpurge
+# zsh completion para o voidbr-vkpurge (VoidBR)
+# instalado em /usr/share/zsh/site-functions/_voidbr-vkpurge
+
+# Versões de kernel órfãs, com a mesma varredura do findOrphanVersions()
+# do voidbr-vkpurge (>= 0.7.27): vmlinuz, vmlinux, initramfs e config em
+# /boot, mais os diretórios de /usr/lib/modules. Exclui o kernel em
+# execução, os que pertencem a pacotes instalados e nomes inválidos.
+#   $1 = installed -> inclui também os kernels instalados (para o `rm`).
+_voidbr_vkpurge_kernels() {
+	local with_installed=0
+	[[ $1 == installed ]] && with_installed=1
+	local running f k p
+	local -A seen installed
+	running=$(uname -r 2>/dev/null)
+
+	if (( ! with_installed && $+commands[xbps-query] )); then
+		for f in ${(f)"$(xbps-query -o '/boot/vmlinu[xz]-*' 2>/dev/null)"}; do
+			[[ $f =~ 'vmlinu[xz]-([^[:space:]]+)' ]] && installed[$match[1]]=1
+		done
+	fi
+
+	# (N) = nullglob só neste padrão; (/) = só diretórios
+	for f in /boot/{vmlinuz,vmlinux,initramfs,config}-*(N) /usr/lib/modules/*(N/); do
+		k=${f:t}
+		if [[ $f == /boot/* ]]; then
+			for p in vmlinuz- vmlinux- initramfs- config-; do
+				[[ $k == ${p}* ]] && { k=${k#$p}; break }
+			done
+			[[ $f == /boot/initramfs-* ]] && k=${k%.img}
+		fi
+		[[ $k =~ '^[A-Za-z0-9._+-]+$' && $k != *..* ]] || continue
+		[[ $k == $running ]] && continue
+		(( ${+installed[$k]} )) && continue
+		seen[$k]=1
+	done
+	print -l -- ${(k)seen}
+}
+
+_voidbr-vkpurge() {
+	local -a modes mods
+	local word cmd="" cleanup=0 keep=0 force=0 dryrun=0 yes=0 nosnap=0
+	local i
+
+	# Analisa o que já foi digitado como o main() do Go: a palavra logo
+	# após list/rm (se não começar com "-") é o alvo; após --keep, o número.
+	for ((i = 2; i < CURRENT; i++)); do
+		word=${words[i]}
+		case $word in
+		list | rm)
+			cmd=$word
+			if (( i + 1 < CURRENT )) && [[ ${words[i+1]} != -* ]]; then
+				(( i++ ))
+			fi
+			;;
+		status) cmd=status ;;
+		--keep) keep=1; (( i + 1 < CURRENT )) && (( i++ )) ;;
+		--keep=*) keep=1 ;;
+		--cleanup) cleanup=1 ;;
+		--force) force=1 ;;
+		--dry-run) dryrun=1 ;;
+		-y | --yes) yes=1 ;;
+		--no-snapshot) nosnap=1 ;;
+		-h | --help) return ;;
+		esac
+	done
+
+	case ${words[CURRENT-1]} in
+	--keep)
+		_message 'quantos kernels instalados manter' && compadd -- 1 2 3
+		return
+		;;
+	rm)
+		local -a kernels
+		kernels=(${(f)"$(_voidbr_vkpurge_kernels installed)"})
+		compadd -- all $kernels
+		return
+		;;
+	list)
+		local -a kernels
+		kernels=(${(f)"$(_voidbr_vkpurge_kernels)"})
+		compadd -a kernels
+		return
+		;;
+	esac
+
+	(( dryrun )) || mods+=('--dry-run:simula sem alterar o sistema')
+	(( yes )) || mods+=('-y:confirma tudo sem perguntar' '--yes:confirma tudo sem perguntar')
+	(( nosnap )) || mods+=('--no-snapshot:não cria snapshot do snapper')
+
+	if (( cleanup )); then
+		(( force )) || modes+=('--force:força a regeneração do bootloader')
+		modes+=($mods)
+	elif (( keep )) || [[ $cmd == rm ]]; then
+		modes+=($mods)
+	elif [[ -n $cmd ]]; then
+		return  # list e status não têm modificadores
+	elif (( force )); then
+		modes+=('--cleanup:varre e remove kernels órfãos' $mods)
+	elif (( dryrun || yes || nosnap )); then
+		modes+=(
+			'rm:remove uma versão ou all'
+			'--cleanup:varre e remove kernels órfãos'
+			'--keep:mantém os N kernels instalados mais novos'
+			'--force:força a regeneração do bootloader'
+			$mods
+		)
+	else
+		modes+=(
+			'status:mostra todos os kernels (estado, pacote, headers, tamanho)'
+			'list:lista kernels órfãos'
+			'rm:remove uma versão ou all'
+			'--cleanup:varre e remove kernels órfãos'
+			'--keep:mantém os N kernels instalados mais novos'
+			'--force:força a regeneração do bootloader'
+			$mods
+			'--help:ajuda'
+		)
+	fi
+
+	(( ${#modes} )) && _describe -t commands 'comando do voidbr-vkpurge' modes
+}
+
+_voidbr-vkpurge "$@"

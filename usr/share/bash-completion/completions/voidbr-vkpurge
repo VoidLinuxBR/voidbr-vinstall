@@ -5,12 +5,16 @@
 # Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 
 # Lista as versões de kernel órfãs com a mesma varredura do
-# findOrphanVersions() do voidbr-vkpurge (>= 0.7.25): vmlinuz, vmlinux,
+# findOrphanVersions() do voidbr-vkpurge (>= 0.7.27): vmlinuz, vmlinux,
 # initramfs e config em /boot, mais os diretórios de /usr/lib/modules.
 # Exclui o kernel em execução, os kernels que ainda pertencem a pacotes
 # instalados (via xbps-query) e nomes que o isValidKernelVersion()
 # recusaria.
+#   $1 = installed -> inclui também os kernels instalados (para o `rm`,
+#                     que oferece desinstalar o pacote); o padrão é só órfãos.
 _voidbr_vkpurge_kernels() {
+	local with_installed=0
+	[[ $1 == installed ]] && with_installed=1
 	local running f k p globopts
 	local -A seen=() installed=()
 
@@ -21,7 +25,7 @@ _voidbr_vkpurge_kernels() {
 
 	running=$(uname -r 2>/dev/null)
 
-	if command -v xbps-query >/dev/null 2>&1; then
+	if ((!with_installed)) && command -v xbps-query >/dev/null 2>&1; then
 		while read -r f; do
 			[[ $f =~ vmlinu[xz]-([^[:space:]]+) ]] && installed[${BASH_REMATCH[1]}]=1
 		done < <(xbps-query -o '/boot/vmlinu[xz]-*' 2>/dev/null)
@@ -49,8 +53,8 @@ _voidbr_vkpurge_kernels() {
 
 _voidbr_vkpurge() {
 	local cur prev i word
-	local cmd="" target=0 cleanup=0 force=0 dryrun=0
-	local -a opts=()
+	local cmd="" target=0 cleanup=0 keep=0 force=0 dryrun=0 yes=0 nosnap=0
+	local -a opts=() mods=()
 
 	COMPREPLY=()
 	cur=${COMP_WORDS[COMP_CWORD]}
@@ -58,7 +62,7 @@ _voidbr_vkpurge() {
 
 	# Analisa o que já foi digitado do mesmo jeito que o main() do Go:
 	# a palavra logo após list/rm (se não começar com "-") é o alvo,
-	# mesmo que seja "list" ou "rm".
+	# mesmo que seja "list" ou "rm"; a palavra após --keep é o número.
 	for ((i = 1; i < COMP_CWORD; i++)); do
 		word=${COMP_WORDS[i]}
 		case $word in
@@ -69,38 +73,58 @@ _voidbr_vkpurge() {
 					((i++))
 				fi
 				;;
+			status) cmd=status ;;
+			--keep)
+				keep=1
+				((i + 1 < COMP_CWORD)) && ((i++))
+				;;
+			--keep=*) keep=1 ;;
 			--cleanup) cleanup=1 ;;
 			--force) force=1 ;;
 			--dry-run) dryrun=1 ;;
+			-y | --yes) yes=1 ;;
+			--no-snapshot) nosnap=1 ;;
 			-h | --help) return 0 ;;
 		esac
 	done
 
+	# Número depois de --keep
+	if [[ $prev == --keep ]]; then
+		COMPREPLY=($(compgen -W "1 2 3" -- "$cur"))
+		return 0
+	fi
+
 	# Alvo logo após `rm` ou `list`
-	if [[ $cur != -* && -n $cmd && $target -eq 0 && $prev == "$cmd" ]]; then
+	if [[ $cur != -* && -n $cmd && $cmd != status && $target -eq 0 && $prev == "$cmd" ]]; then
 		case $cmd in
-			rm) COMPREPLY=($(compgen -W "all $(_voidbr_vkpurge_kernels)" -- "$cur")) ;;
+			rm) COMPREPLY=($(compgen -W "all $(_voidbr_vkpurge_kernels installed)" -- "$cur")) ;;
 			list) COMPREPLY=($(compgen -W "$(_voidbr_vkpurge_kernels)" -- "$cur")) ;;
 		esac
 		return 0
 	fi
 
-	# Opções que ainda fazem sentido
+	# Modificadores das operações que removem algo, ainda não usados
+	((dryrun)) || mods+=(--dry-run)
+	((yes)) || mods+=(-y --yes)
+	((nosnap)) || mods+=(--no-snapshot)
+
+	# Só um modo por vez: list, rm, status, --cleanup, --keep
 	if ((cleanup)); then
 		((force)) || opts+=(--force)
-		((dryrun)) || opts+=(--dry-run)
+		opts+=("${mods[@]}")
+	elif ((keep)) || [[ $cmd == rm ]]; then
+		opts+=("${mods[@]}")
 	elif [[ -n $cmd ]]; then
-		# list ignora --dry-run; rm aceita
-		[[ $cmd == rm && $dryrun -eq 0 ]] && opts+=(--dry-run)
+		# list e status não têm modificadores
+		:
 	elif ((force)); then
 		# --force só tem efeito junto com --cleanup
-		opts+=(--cleanup)
-		((dryrun)) || opts+=(--dry-run)
-	elif ((dryrun)); then
-		# --dry-run só tem efeito em rm e --cleanup
-		opts+=(rm --cleanup --force)
+		opts+=(--cleanup "${mods[@]}")
+	elif ((dryrun || yes || nosnap)); then
+		# modificadores só valem para rm, --cleanup e --keep
+		opts+=(rm --cleanup --keep --force "${mods[@]}")
 	else
-		opts+=(list rm --cleanup --dry-run --force --help)
+		opts+=(status list rm --cleanup --keep --force "${mods[@]}" --help)
 	fi
 
 	COMPREPLY=($(compgen -W "${opts[*]}" -- "$cur"))
