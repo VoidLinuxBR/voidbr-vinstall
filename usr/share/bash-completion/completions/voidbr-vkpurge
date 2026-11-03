@@ -4,17 +4,14 @@
 #
 # Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 
-# Lista as versões de kernel órfãs, aplicando os mesmos filtros do
-# voidbr-vkpurge: exclui o kernel em execução, os kernels que ainda
-# pertencem a pacotes instalados (via xbps-query) e nomes que o
-# isValidKernelVersion() recusaria.
-#
-#   $1 = boot  -> só /boot/vmlinu[xz]-*            (igual ao listKernels: list e rm all)
-#   $1 = all   -> /boot + diretórios em /usr/lib/modules (igual ao rm <versão>)
+# Lista as versões de kernel órfãs com a mesma varredura do
+# findOrphanVersions() do voidbr-vkpurge (>= 0.7.25): vmlinuz, vmlinux,
+# initramfs e config em /boot, mais os diretórios de /usr/lib/modules.
+# Exclui o kernel em execução, os kernels que ainda pertencem a pacotes
+# instalados (via xbps-query) e nomes que o isValidKernelVersion()
+# recusaria.
 _voidbr_vkpurge_kernels() {
-	local scope=${1:-boot}
-	local running f k globopts
-	local -a files
+	local running f k p globopts
 	local -A seen=() installed=()
 
 	# Não depende de nullglob/failglob do usuário
@@ -30,13 +27,16 @@ _voidbr_vkpurge_kernels() {
 		done < <(xbps-query -o '/boot/vmlinu[xz]-*' 2>/dev/null)
 	fi
 
-	files=(/boot/vmlinuz-* /boot/vmlinux-*)
-	[[ $scope == all ]] && files+=(/usr/lib/modules/*/)
-
-	for f in "${files[@]}"; do
+	for f in /boot/vmlinuz-* /boot/vmlinux-* /boot/initramfs-* /boot/config-* /usr/lib/modules/*/; do
 		f=${f%/}
 		k=${f##*/}
-		[[ $f == /boot/* ]] && k=${k##*-}
+		if [[ $f == /boot/* ]]; then
+			# a versão é o que vem depois do prefixo (pode ter hífen)
+			for p in vmlinuz- vmlinux- initramfs- config-; do
+				[[ $k == "$p"* ]] && { k=${k#"$p"}; break; }
+			done
+			[[ $f == /boot/initramfs-* ]] && k=${k%.img}
+		fi
 		[[ $k =~ ^[A-Za-z0-9._+-]+$ && $k != *..* ]] || continue
 		[[ $k == "$running" ]] && continue
 		[[ -n ${installed[$k]} ]] && continue
@@ -79,8 +79,8 @@ _voidbr_vkpurge() {
 	# Alvo logo após `rm` ou `list`
 	if [[ $cur != -* && -n $cmd && $target -eq 0 && $prev == "$cmd" ]]; then
 		case $cmd in
-			rm) COMPREPLY=($(compgen -W "all $(_voidbr_vkpurge_kernels all)" -- "$cur")) ;;
-			list) COMPREPLY=($(compgen -W "$(_voidbr_vkpurge_kernels boot)" -- "$cur")) ;;
+			rm) COMPREPLY=($(compgen -W "all $(_voidbr_vkpurge_kernels)" -- "$cur")) ;;
+			list) COMPREPLY=($(compgen -W "$(_voidbr_vkpurge_kernels)" -- "$cur")) ;;
 		esac
 		return 0
 	fi
