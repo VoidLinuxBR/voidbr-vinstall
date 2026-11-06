@@ -687,16 +687,30 @@ where
 
 // output_timeout roda o comando com limite de tempo e captura o stdout.
 // Retorna (stdout, sucesso). Estourando o tempo, mata o processo.
-fn output_timeout(mut cmd: Command, dur: Duration) -> (String, bool) {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
-    let Ok(mut child) = cmd.spawn() else { return (String::new(), false) };
-    let mut stdout = child.stdout.take().expect("stdout com pipe");
+fn output_timeout(cmd: Command, dur: Duration) -> (String, bool) {
+    let (out, _, ok) = capture_timeout(cmd, dur, false);
+    (out, ok)
+}
+
+// read_pipe lê um pipe inteiro num thread e entrega o conteúdo pelo canal.
+fn read_pipe(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<Vec<u8>> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = stdout.read_to_end(&mut buf);
+        let _ = pipe.read_to_end(&mut buf);
         let _ = tx.send(buf);
     });
+    rx
+}
+
+// capture_timeout roda o comando com limite de tempo e captura o stdout e,
+// se with_stderr, também o stderr. Retorna (stdout, stderr, sucesso).
+fn capture_timeout(mut cmd: Command, dur: Duration, with_stderr: bool) -> (String, String, bool) {
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped());
+    cmd.stderr(if with_stderr { Stdio::piped() } else { Stdio::null() });
+    let Ok(mut child) = cmd.spawn() else { return (String::new(), String::new(), false) };
+    let rx = read_pipe(child.stdout.take().expect("stdout com pipe"));
+    let rx_err = child.stderr.take().map(read_pipe);
     let deadline = Instant::now() + dur;
     let status = loop {
         match child.try_wait() {
@@ -712,11 +726,13 @@ fn output_timeout(mut cmd: Command, dur: Duration) -> (String, bool) {
     };
     // terminou normalmente: lê até o fim; foi morto: não espera netos
     // que ainda segurem o pipe
-    let buf = match status {
+    let recv = |rx: &mpsc::Receiver<Vec<u8>>| match status {
         Some(_) => rx.recv().unwrap_or_default(),
         None => rx.recv_timeout(Duration::from_secs(1)).unwrap_or_default(),
     };
-    (String::from_utf8_lossy(&buf).into_owned(), status.map(|s| s.success()).unwrap_or(false))
+    let out = String::from_utf8_lossy(&recv(&rx)).into_owned();
+    let err = rx_err.map(|r| String::from_utf8_lossy(&recv(&r)).into_owned()).unwrap_or_default();
+    (out, err, status.map(|s| s.success()).unwrap_or(false))
 }
 
 // run_timeout roda o comando (stdio já configurado) com limite de tempo.
@@ -1861,14 +1877,10 @@ fn discover_xlocate_remotes(cache_dir: &Path) -> Vec<XlocateRemote> {
         candidates.push(list);
     }
 
-    let agent = ureq::AgentBuilder::new().timeout(EXEC_TIMEOUT).try_proxy_from_env(true).build();
     let results: Vec<Option<XlocateRemote>> = thread::scope(|s| {
         let handles: Vec<_> = candidates
             .iter()
-            .map(|list| {
-                let agent = &agent;
-                s.spawn(move || list.iter().find_map(|cand| probe_xlocate_remote(agent, cand)))
-            })
+            .map(|list| s.spawn(move || list.iter().find_map(|cand| probe_xlocate_remote(cand))))
             .collect();
         handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
     });
@@ -1934,29 +1946,34 @@ fn read_xlocate_remotes(cache_file: &Path) -> (String, Vec<XlocateRemote>) {
 }
 
 // probe_xlocate_remote confere se existe um índice xlocate (repositório git
-// servido por HTTP) em cand, lendo cand/info/refs. Retorna a URL final,
-// depois de redirects (ex.: voidbr.org -> www.voidbr.org), e o commit.
-fn probe_xlocate_remote(agent: &ureq::Agent, cand: &str) -> Option<XlocateRemote> {
-    let resp = agent.get(&format!("{cand}/info/refs")).call().ok()?;
-    if resp.status() != 200 {
+// servido por HTTP) em cand, via "git ls-remote <cand> refs/heads/master"
+// (o xlocate já depende do git). Retorna a URL final, depois de redirects
+// (ex.: voidbr.org -> www.voidbr.org), e o commit do master. O git avisa o
+// redirect no stderr ("warning: redirecting to <url>/"); LC_ALL=C garante a
+// mensagem em inglês e GIT_TERMINAL_PROMPT=0 impede pedir senha.
+fn probe_xlocate_remote(cand: &str) -> Option<XlocateRemote> {
+    let mut cmd = Command::new("git");
+    cmd.args(["ls-remote", cand, "refs/heads/master"])
+        .env("LC_ALL", "C")
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let (out, err, ok) = capture_timeout(cmd, EXEC_TIMEOUT, true);
+    if !ok {
         return None;
     }
-    let final_url = resp.get_url().to_string();
-    let mut body = Vec::new();
-    resp.into_reader().take(64 * 1024).read_to_end(&mut body).ok()?;
-    let body = String::from_utf8_lossy(&body);
-    for line in body.split('\n') {
+    let hash = out.lines().find_map(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() == 2
+        (fields.len() == 2
             && fields[1] == "refs/heads/master"
             && fields[0].len() == 40
-            && fields[0].chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
-        {
-            let url = final_url.strip_suffix("/info/refs").unwrap_or(&final_url).to_string();
-            return Some(XlocateRemote { url, hash: fields[0].into() });
-        }
-    }
-    None
+            && fields[0].chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)))
+        .then(|| fields[0].to_string())
+    })?;
+    let url = err
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("warning: redirecting to "))
+        .map(|u| u.trim().trim_end_matches('/').to_string())
+        .unwrap_or_else(|| cand.to_string());
+    Some(XlocateRemote { url, hash })
 }
 
 // -FR: repositórios, via xlocate, nos índices do Void e do VoidBR. O
@@ -2579,7 +2596,7 @@ fn print_usage() {
    Added:
      - Porte do vinstall-v1.6.45.go para Rust, com as mesmas opções,
        mensagens e códigos de saída. Dependências: zstd + tar (repodata),
-       plist (index.plist), regex, ureq (descoberta dos índices xlocate)
+       plist (index.plist), regex, url
        e libc (isatty/ioctl/geteuid).
      - SIGPIPE volta ao padrão do Unix: "vinstall -Li | head" termina em
        silêncio, como na versão Go.
