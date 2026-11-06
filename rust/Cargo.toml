@@ -1,0 +1,27 @@
+[package]
+name = "vinstall"
+version = "1.6.45"
+edition = "2021"
+description = "Wrapper para o Void xbps-install, xbps-query e xbps-remove"
+authors = ["Vilmar Catafesta <vcatafesta@gmail.com>"]
+license = "MIT"
+
+[[bin]]
+name = "vinstall"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+plist = "1"
+regex = "1"
+tar = "0.4"
+ureq = "2"
+url = "2"
+zstd = "0.13"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
