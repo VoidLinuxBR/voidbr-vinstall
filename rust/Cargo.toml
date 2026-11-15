@@ -1,6 +1,6 @@
 [package]
 name = "vinstall"
-version = "1.6.45"
+version = "1.6.46"
 edition = "2021"
 description = "Wrapper para o Void xbps-install, xbps-query e xbps-remove"
 authors = ["Vilmar Catafesta <vcatafesta@gmail.com>"]

@@ -3,7 +3,7 @@
 
    voidbr-vinstall (Rust)
    Wrapper para o Void xbps-install, xbps-query e xbps-remove
-   Porte em Rust do vinstall-v1.6.45.go
+   Porte em Rust do vinstall-v1.6.46.go
 
    Site:      https://chililinux.com
    Site:      https://voidbr.org
@@ -11,8 +11,8 @@
    GitHub:    https://github.com/voidlinuxbr/voidbr-vinstall
 
    Created:   sex 06 nov 2026 13:28:10 -04
-   Updated:   sex 06 nov 2026 13:28:10 -04
-   Version:   1.6.45
+   Updated:   dom 15 nov 2026 10:11:00 -04
+   Version:   1.6.46
    Copyright (C) 2019-2026 Vilmar Catafesta <vcatafesta@gmail.com>
 */
 
@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 
-const VERSION: &str = "1.6.45";
+const VERSION: &str = "1.6.46";
 // COPYRIGHT_TEAM aparece no --help
 const COPYRIGHT_TEAM: &str = "Copyright (c) 2026-2026, VoidBR Development Team <https://voidbr.org>";
 const EXEC_TIMEOUT: Duration = Duration::from_secs(10);
@@ -333,8 +333,13 @@ fn install(mut flags: Vec<String>, targets: Vec<String>) {
         flags.push("-y".into());
     }
 
-    let mut needs_ignore_conflicts = !targets.is_empty();
-    if !needs_ignore_conflicts {
+    // --overwrite <glob> (voidbr-xbps): quem passou escolheu QUAIS
+    // conflitos liberar; o -I automático liberaria todos e anularia a
+    // escolha, então não é acrescentado
+    let has_overwrite = flags.iter().any(|f| f == "--overwrite" || f.starts_with("--overwrite="));
+
+    let mut needs_ignore_conflicts = !targets.is_empty() && !has_overwrite;
+    if !needs_ignore_conflicts && !has_overwrite {
         // em "--opcao=valor" só o nome da opção conta, para um valor como
         // "--repository=https://...linux..." não ativar a flag por engano
         needs_ignore_conflicts = flags.iter().any(|f| {
@@ -543,7 +548,7 @@ fn extract_version(pkgver: &str) -> &str {
 // is_value_option: opções longas do xbps-install que recebem um valor. Na
 // forma "--opcao valor" o vinstall junta as duas em "--opcao=valor".
 fn is_value_option(arg: &str) -> bool {
-    matches!(arg, "--parallel-downloads" | "--repository" | "--rootdir" | "--config" | "--cachedir")
+    matches!(arg, "--parallel-downloads" | "--repository" | "--rootdir" | "--config" | "--cachedir" | "--overwrite")
 }
 
 // short_value_option mapeia as opções curtas do xbps-install que recebem
@@ -2531,6 +2536,8 @@ fn print_usage() {
     usage_opt("-y", "Responde sim a tudo");
     usage_opt("-n", "Simula: mostra o que seria feito, sem instalar ou remover");
     usage_opt("--parallel-downloads <n>", "Downloads simultâneos (1-16); aceita também =<n>");
+    usage_opt("--overwrite <glob>", "Sobrescreve arquivos em conflito que casam com <glob>");
+    usage_more("('*' = todos, '!glob' = exceção; sem ela o vinstall usa -I)");
 
     usage_section("Sincronizar:");
     usage_opt("-Sy", "Sincroniza índices e lista as atualizações");
@@ -2591,6 +2598,17 @@ fn print_usage() {
 
 /*
    CHANGELOG
+
+   [1.6.46] - 2026-11-15
+   Fixed:
+     - --overwrite <glob> (voidbr-xbps) não chegava ao xbps-install: o
+       valor virava nome de pacote ("invalid pkgpattern: *"). Agora a
+       opção leva o argumento seguinte junto, repassada como
+       "--overwrite=<glob>", como --repository e as demais.
+   Changed:
+     - Com --overwrite na linha de comando, o vinstall não acrescenta
+       mais o --ignore-file-conflicts automático: só os conflitos que
+       casam com o padrão são liberados, os outros continuam sendo erro.
 
    [1.6.45] - 2026-11-06
    Added:
